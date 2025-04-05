@@ -24,28 +24,7 @@ use App\Http\Controllers\TwilioController;
 |
 */
 
-// Route::middleware(['cors'])->group(function () {
-//     Route::post('/register', [AutheController::class, 'register']);
-//     Route::post('/login', [AutheController::class, 'login']);
-//     Route::get('/login-dates', [AutheController::class, 'getLoginDates'])->middleware('auth:sanctum');
 
-//     Route::post('/jobPost', [jobpostingController::class, 'jobPost']);
-//     Route::post('/entrepreneur', [EntreInfController::class, 'entrepreneur']);
-//     Route::post('/logine', [EntreInfController::class, 'logine']);
-//     Route::put('/employer/modify-profile', [EntreInfController::class, 'updateProfile'])->middleware('auth:sanctum');
-//     Route::get('/employer', [EntreInfController::class, 'getEmployer'])->middleware('auth:sanctum');
-
-//     Route::middleware('auth:sanctum')->group(function () {
-//         Route::get('/employer/login-dates', [EntreInfController::class, 'getLoginDates']);
-//         Route::get('/user', [EntreInfController::class, 'getEmployer']);
-//     });
-  
-//     // Other routes...
-    
-//     Route::options('/{any}', function () {
-//         return response()->json();
-//     })->where('any', '.*');
-// });
 
 Route::post('/register', [AutheController::class, 'register']);
 Route::post('/login', [AutheController::class, 'login']);
