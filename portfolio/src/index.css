@@ -1,0 +1,91 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+   font-family: Poppins, system-ui, Avenir, Helvetica, Arial, sans-serif;
+
+  /* --background-color: #0A0A0A;
+  --background-light: #fff;
+  --shadow-color: rgb(0,0,0,0.2);
+  --primary-color:rgb(33,150,243);
+  --text-color: #0A0A0A;
+  --text-light: #0A0A0A;
+  --font-size: 16px; */
+}
+.rounded-image {
+  border-radius: 50% !important; /* Make image fully round */
+}
+
+#hell {
+  color: var(--primary-color);
+}
+#hill{
+  color:var(--background-light)
+}
+
+a {
+  font-weight: 500;
+  color: #646cff;
+  text-decoration: inherit;
+}
+a:hover {
+  color: #535bf2;
+}
+
+body {
+  margin: 0;
+  display: flex;
+
+  min-width: 320px;
+  min-height: 100vh;
+  font-size: var(--font-size);
+  background-color: var(--background-color);
+  
+}
+#helloh2{
+  color: var(--text-color);
+}
+h1 {
+  font-size: 3.2em;
+  line-height: 1.1;
+}
+
+button {
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  background-color: #1a1a1a;
+  cursor: pointer;
+  transition: border-color 0.25s;
+}
+button:hover {
+  border-color: #646cff;
+}
+button:focus,
+button:focus-visible {
+  outline: 4px auto -webkit-focus-ring-color;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color: #213547;
+    background-color: #ffffff;
+  }
+  a:hover {
+    color: #747bff;
+  }
+  button {
+    background-color: #f9f9f9;
+  }
+}
+
+#nawa {
+  background-color: var(--primary-color);
+}
+
+
+
