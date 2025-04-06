@@ -18,6 +18,7 @@ class jobpostingcontroller extends Controller
     public function jobPost(Request $request)
     {
         \Log::info('Job Posting Request Data:', $request->all());
+        \Log::info('Received job posting data:', $request->all());
     
         $request->validate([
             'job_title' => 'required|string|max:255',
@@ -92,11 +93,17 @@ class jobpostingcontroller extends Controller
     }
 }
 
-      // Send SMS notification
+// Send SMS notification
 $twilioService = new TwilioService();
 $message = "New Job Posted: {$jobPosting->job_title}. Location: {$jobPosting->location}";
 $phoneNumber = '+237' . $user->contact_number; // Prepend the country code
-$twilioService->sendSMS($phoneNumber, $message);
+
+try {
+    $twilioService->sendSMS($phoneNumber, $message);
+} catch (\Exception $e) {
+    \Log::error('Twilio SMS Error: ' . $e->getMessage());
+    // Continue with job posting even if SMS fails
+}
 
             return response()->json([
                 'message' => 'Job Posted Successfully',
