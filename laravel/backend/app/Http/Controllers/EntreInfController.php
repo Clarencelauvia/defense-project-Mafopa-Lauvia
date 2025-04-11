@@ -16,6 +16,10 @@ use App\Models\EmployerLoginDate; // Import the EmployerLoginDate model
 use App\Models\Applicants; // Import the Applicant model
 use App\Models\Job; // Import the Job model
 use App\Models\JobPosting;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+
+
 
 class EntreInfController extends Controller
 {
@@ -292,26 +296,73 @@ public function getApplicantById($id)
 {
     try {
         $applicant = Applicants::findOrFail($id);
-        
-        // Ensure URLs are complete
-        $applicant->video_url = $applicant->video_url 
-            ? asset($applicant->video_url)
-            : null;
-            
-        $applicant->resume_url = $applicant->resume_url 
-            ? asset($applicant->resume_url)
-            : null;
+
+        // Format URLs correctly
+        if ($applicant->video_url) {
+            $applicant->video_url = asset($applicant->video_url);
+        }
+
+        if ($applicant->resume_url) {
+            $applicant->resume_url = asset($applicant->resume_url);
+        }
 
         return response()->json($applicant);
     } catch (\Exception $e) {
         \Log::error('Failed to fetch applicant', ['error' => $e->getMessage()]);
-        return response()->json([
-            'message' => 'Failed to fetch applicant details.',
-            'error' => $e->getMessage(),
-        ], 500);
+        return response()->json(['message' => 'Failed to fetch applicant details'], 500);
     }
 }
 
+public function updateApplicantStatus(Request $request, $id)
+{
+    \Log::info('Updating applicant status', [
+        'applicant_id' => $id,
+        'new_status' => $request->status,
+        'request_data' => $request->all()
+    ]);
+
+    Log::info('Updating applicant status - Request received', [
+        'applicant_id' => $id,
+        'request_data' => $request->all(),
+        'content_type' => $request->header('Content-Type'),
+        'accept' => $request->header('Accept')
+    ]);
+
+    try {
+        $request->validate([
+            'status' => 'required|in:accepted,denied,pending'
+        ]);
+
+        $applicant = Applicants::findOrFail($id);
+        Log::info('Found applicant', [
+            'current_status' => $applicant->status,
+            'new_status' => $request->status
+        ]);
+
+        $applicant->status = $request->status;
+        $applicant->save();
+
+        \Log::info('Applicant status updated successfully', [
+            'applicant_id' => $id,
+            'new_status' => $applicant->status
+        ]);
+
+        return response()->json([
+            'message' => 'Applicant status updated successfully',
+            'applicant' => $applicant
+        ]);
+    } catch (\Exception $e) {
+        \Log::error('Failed to update applicant status', [
+            'error' => $e->getMessage(),
+            'stack_trace' => $e->getTraceAsString()
+        ]);
+
+        return response()->json([
+            'message' => 'Failed to update applicant status',
+            'error' => $e->getMessage()
+        ], 500);
+    }
+}
 
 
 // UserController.php

@@ -5,9 +5,10 @@ import Calendar from 'react-calendar';
 import 'react-calendar/dist/Calendar.css';
 import Swal from 'sweetalert2';
 import { FaUser, FaBriefcase, FaCheckCircle, FaTimesCircle, FaBell, FaSignOutAlt,
-FaComment, FaUserFriends,  FaEnvelope
+FaComment, FaUserFriends,  FaEnvelope, FaUserCog
  } from 'react-icons/fa';
  import Pusher from 'pusher-js';
+ import LoginFrequencyGraph from './LoginFrequencyGraph';
 
 // Interfaces
 interface LoginDate {
@@ -366,11 +367,20 @@ useEffect(() => {
   }, [pusher, navigate]);
 
   const handleLogout = () => {
-    // Clear the token from local storage
-    localStorage.removeItem('token');
-
-    // Redirect to the login page immediately
-    window.location.href = '/employer_login';
+    Swal.fire({
+      title: 'Goodbye!',
+      text: `Thanks for using our platform, ${employer?.first_name}!`,
+      icon: 'info',
+      confirmButtonText: 'OK',
+      timer: 3000, // Auto close after 3 seconds
+      timerProgressBar: true,
+      willClose: () => {
+        // Clear the token from local storage
+        localStorage.removeItem('token');
+        // Redirect to the login page
+        window.location.href = '/employer_login';
+      }
+    });
   };
 
   return (
@@ -479,6 +489,13 @@ useEffect(() => {
               >
                 <FaUserFriends className="mr-3" /> Discuss With Employers
               </Link>
+
+              <Link
+                to="/"
+                className="flex items-center py-3 px-4 rounded-lg text-white mb-2 hover:bg-white hover:bg-opacity-10 transition-colors"
+              >
+                <FaUserCog className="mr-3" /> Discuss With Admin
+              </Link>
              
               <Link
                 to="/" onClick={handleLogout}
@@ -580,7 +597,7 @@ useEffect(() => {
                   ) : (
                     <>
                       <div className="space-y-4">
-                        {(showAllJobs ? postedJobs : postedJobs.slice(0, 2)).map((job) => (
+                        {(showAllJobs ? postedJobs : postedJobs.slice(0, 1)).map((job) => (
                           <div key={job.id} className="border border-blue-300 border-opacity-30 rounded-lg p-4 hover:bg-white hover:bg-opacity-5 transition-colors">
                             <h3 className="text-lg font-bold text-white">{job.job_title}</h3>
                             <p className="text-sm text-blue-200 mb-1">{job.company_description}</p>
@@ -596,7 +613,7 @@ useEffect(() => {
                           </div>
                         ))}
                       </div>
-                      {postedJobs.length > 2 && (
+                      {postedJobs.length > 1 && (
   <div className="mt-4 text-center">
     <Link to="/employer/manage-jobs">
       <button className="bg-blue-600 bg-opacity-70 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors">
@@ -624,7 +641,7 @@ useEffect(() => {
   ) : (
     <>
       <div className="space-y-4">
-        {(showAllApplicants ? recentApplicants : recentApplicants.slice(0, 2)).map((applicant) => (
+        {(showAllApplicants ? recentApplicants : recentApplicants.slice(0, 1)).map((applicant) => (
         // In the Recent Applicants section
 <div key={applicant.id} className="border border-blue-300 border-opacity-30 rounded-lg p-4 hover:bg-white hover:bg-opacity-5 transition-colors">
   <h3 className="text-lg font-bold text-white">{applicant.first_name} {applicant.last_name}</h3>
@@ -652,7 +669,7 @@ useEffect(() => {
 </div>
         ))}
       </div>
-      {recentApplicants.length > 2 && (
+      {recentApplicants.length > 1 && (
         <div className="mt-4 text-center">
           <Link to="/employer/recent-applicants">
             <button className="bg-blue-600 bg-opacity-70 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors">
@@ -666,22 +683,41 @@ useEffect(() => {
 </div>
               </div>
 
-              {/* Login Activity Calendar */}
-              <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-6 mb-6">
-                <h2 className="text-xl font-semibold text-white mb-4">Login Activity Calendar</h2>
-                {isLoading ? (
-                  <div className="flex justify-center py-6">
-                    <p className="text-blue-200">Loading calendar data...</p>
-                  </div>
-                ) : (
-                  <div className="calendar-wrapper bg-white bg-opacity-5 p-4 rounded-lg">
-                    <Calendar
-                      tileContent={tileContent}
-                      className="border-0 rounded-lg shadow-md"
-                    />
-                  </div>
-                )}
-              </div>
+            {/* Login Activity Section */}
+<div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+  {/* Calendar - Now takes half width on larger screens */}
+  <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-6">
+    <h2 className="text-xl font-semibold text-white mb-4">Login Activity Calendar</h2>
+    {isLoading ? (
+      <div className="flex justify-center py-6">
+        <p className="text-blue-200">Loading calendar data...</p>
+      </div>
+    ) : (
+      <div className="calendar-wrapper bg-white bg-opacity-5 p-4 rounded-lg">
+        <Calendar 
+          tileContent={tileContent} 
+          className="border-0 rounded-lg shadow-md" 
+        />
+      </div>
+    )}
+  </div>
+
+  {/* Login Frequency Graph - Now takes half width on larger screens */}
+  <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-6">
+    <h2 className="text-xl font-semibold text-white mb-8">Monthly Login Frequency</h2>
+    {isLoading ? (
+      <div className="flex justify-center py-6 ">
+        <p className="text-blue-200">Loading login data...</p>
+      </div>
+    ) : loginDates.length > 0 ? (
+      <LoginFrequencyGraph loginDates={loginDates} />
+    ) : (
+      <div className="flex items-center justify-center h-full">
+        <p className="text-blue-200">No login data available</p>
+      </div>
+    )}
+  </div>
+</div>
             </>
           )}
         </div>

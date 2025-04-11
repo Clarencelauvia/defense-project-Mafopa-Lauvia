@@ -31,26 +31,30 @@ const AllRecommendedJobsPage: React.FC = () => {
       try {
         const token = localStorage.getItem('token');
         if (!token) {
-          throw new Error('No token found');
+          navigate('/login');
+          return;
         }
-
+    
         const response = await axios.get('http://localhost:8000/api/jobs/recommended', {
           headers: { Authorization: `Bearer ${token}` },
         });
-
+    
         if (Array.isArray(response.data)) {
           setRecommendedJobs(response.data);
         } else {
           setError('Invalid response format. Expected an array.');
         }
       } catch (error) {
-        setError('Failed to fetch recommended jobs. Please try again later.');
+        if (axios.isAxiosError(error)) {
+          if (error.response?.status === 401) {
+            navigate('/login');
+          } else {
+            setError('Failed to fetch recommended jobs. Please try again later.');
+          }
+        } else {
+          setError('An unexpected error occurred.');
+        }
         console.error('Error fetching recommended jobs:', error);
-        Swal.fire({
-          icon: 'error',
-          title: 'Error',
-          text: 'Failed to fetch recommended jobs.',
-        });
       } finally {
         setLoading(false);
       }

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import Swal from 'sweetalert2';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 
 interface JobApplication {
   id: number;
@@ -9,13 +9,18 @@ interface JobApplication {
   job_title: string;
   application_date: string;
   status: string;
-  organisation_name:string;
+  organisation_name: string;
 }
 
 const Applications: React.FC = () => {
   const [applications, setApplications] = useState<JobApplication[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Get status filter from URL query params
+  const queryParams = new URLSearchParams(location.search);
+  const statusFilter = queryParams.get('status') || 'all';
 
   const fetchAppliedJobs = async () => {
     try {
@@ -37,7 +42,14 @@ const Applications: React.FC = () => {
       });
 
       if (response.data && Array.isArray(response.data)) {
-        setApplications(response.data);
+        // Filter applications based on status if specified
+        let filteredApplications = response.data;
+        if (statusFilter !== 'all') {
+          filteredApplications = response.data.filter(
+            (app: JobApplication) => app.status === statusFilter
+          );
+        }
+        setApplications(filteredApplications);
       } else {
         console.error('Unexpected response format:', response.data);
       }
@@ -56,7 +68,20 @@ const Applications: React.FC = () => {
 
   useEffect(() => {
     fetchAppliedJobs();
-  }, []);
+  }, [statusFilter]); // Refetch when status filter changes
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'accepted':
+        return 'text-green-600';
+      case 'denied':
+        return 'text-red-600';
+      case 'pending':
+        return 'text-yellow-600';
+      default:
+        return 'text-white';
+    }
+  };
 
   return (
     <div className="bg-gradient-to-b from-blue-800 to-blue-950 min-h-screen w-screen">
@@ -67,7 +92,9 @@ const Applications: React.FC = () => {
           </div>
           <h1 className="ml-4 text-white text-2xl font-bold">Professionals & Matches</h1>
         </Link>
-        <h2 className="text-white text-2xl font-bold">Applied Jobs</h2>
+        <h2 className="text-white text-2xl font-bold">
+          {statusFilter === 'all' ? 'All Applications' : `${statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1)} Applications`}
+        </h2>
         <div className="flex items-center space-x-4">
           <Link to="/settings" className="text-white hover:text-blue-300 transition-colors">
             Settings
@@ -86,31 +113,55 @@ const Applications: React.FC = () => {
           Back to Dashboard
         </button>
 
+        {/* Status Filter Tabs */}
+        <div className="flex space-x-2 mb-6">
+          <Link
+            to="/applications"
+            className={`px-4 py-2 rounded-md ${statusFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-blue-600 text-white'}`}
+          >
+            All
+          </Link>
+          <Link
+            to="/applications?status=pending"
+            className={`px-4 py-2 rounded-md ${statusFilter === 'pending' ? 'bg-yellow-600 text-white' : 'bg-blue-600 text-white'}`}
+          >
+            Pending
+          </Link>
+          <Link
+            to="/applications?status=accepted"
+            className={`px-4 py-2 rounded-md ${statusFilter === 'accepted' ? 'bg-green-600 text-white' : 'bg-blue-600 text-white'}`}
+          >
+            Accepted
+          </Link>
+          <Link
+            to="/applications?status=denied"
+            className={`px-4 py-2 rounded-md ${statusFilter === 'denied' ? 'bg-red-600 text-white' : 'bg-blue-600 text-white'}`}
+          >
+            Denied
+          </Link>
+        </div>
+
         {isLoading ? (
-          <p>Loading...</p>
+          <p className="text-white">Loading applications...</p>
         ) : applications.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {applications.map((application) => (
               <div key={application.id} className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-6 shadow-md">
-             <div className='flex justify-between'>
-             <h2 className="text-xl font-bold text-white text-center">{application.job_title}</h2> 
+                <div className='flex justify-between'>
+                  <h2 className="text-xl font-bold text-white">{application.job_title}</h2>
                   <p className="text-sm text-white">
-                  Status:{' '}
-                  <span
-                    className={`font-bold ${
-                      application.status === 'accepted' ? 'text-green-600' :
-                      application.status === 'denied' ? 'text-red-600' :
-                      'text-yellow-600'
-                    }`}
-                  >
-                    {application.status}
-                  </span>
+                    Status:{' '}
+                    <span className={`font-bold ${getStatusColor(application.status)}`}>
+                      {application.status}
+                    </span>
+                  </p>
+                </div>
+                {application.organisation_name && (
+                  <p className="text-sm text-white mt-2">Company: {application.organisation_name}</p>
+                )}
+                <p className="text-sm text-white mt-2">
+                  Applied on: {new Date(application.application_date).toLocaleDateString()}
                 </p>
-                {/* <h2 className="text-xl font-bold text-white text-center">{application.organisation_name} </h2> */}
-             </div>
-             <br />
-                <p className="text-sm text-white">Applied on: {new Date(application.application_date).toLocaleDateString()}</p>
-              
                 <div className="flex justify-center mt-6">
                   <Link
                     to={`/job/${application.job_id}`}
@@ -123,7 +174,17 @@ const Applications: React.FC = () => {
             ))}
           </div>
         ) : (
-          <p>No applied jobs found.</p>
+          <div className="text-center py-8">
+            <p className="text-white text-lg">
+              No {statusFilter === 'all' ? '' : statusFilter} applications found.
+            </p>
+            <Link
+              to="/jobs"
+              className="inline-block mt-4 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+            >
+              Browse Jobs
+            </Link>
+          </div>
         )}
       </div>
     </div>

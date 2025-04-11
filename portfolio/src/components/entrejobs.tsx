@@ -15,7 +15,19 @@ interface ErrorResponse {
     [key: string]: string[]; // Each field can have multiple error messages
   };
 }
-
+interface JobPostData {
+  job_title: string;
+  educational_level: string;
+  job_description: string;
+  salary_range: string;
+  job_category: string;
+  experience_level: string;
+  company_description: string;
+  skill_required: string;
+  job_type: string;
+  job_duration: string;
+  location: string;
+}
 function Entrejobs() {
 
   const pusher = useContext(PusherContext);
@@ -130,122 +142,88 @@ function Entrejobs() {
   };
 
   // handle form submission 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    // Check if the form is completely filled
-  // Check if the form is completely filled
-  const requiredFields = ['jobTitle', 'educationalLevel', 'jobDescription', 'salaryRange', 
-    'jobCategory', 'experienceLevel', 'companyDescription', 
-    'skillRequired', 'jobType', 'jobDuration', 'location'];
 
-const missingFields = requiredFields.filter(field => !formData[field as keyof typeof formData]);
-
-if (missingFields.length > 0) {
-setErrorMessage('Please fill in all required fields');
-return;
-}
-    
-    // Check if job is already posted
-    if (isDuplicateJob()) {
-      Swal.fire({
-        title: 'Duplicate Job',
-        text: 'This job appears to be already posted. Please check your dashboard for existing job listings.',
-        icon: 'warning',
-        confirmButtonText: 'OK',
-      });
-      return;
-    }
-    
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        throw new Error('No token found');
-      }
-
-      // call the postJob function from the authservice
-      const response = await postJob(
-        formData.jobTitle,
-        formData.educationalLevel,
-        formData.jobDescription,
-        formData.salaryRange,
-        formData.jobCategory,
-        formData.experienceLevel,
-        formData.companyDescription,
-        formData.skillRequired,
-        formData.jobType,
-        formData.jobDuration,
-        formData.location,
-      );
-
-      setSuccessMessage('Job Posting successful!');
-      console.log('Job Posting successful:', response);
-      setIsJobPosted(true);
-      
-      if (response && response.token) {
-        localStorage.setItem('token', response.token);
-      }
-      
-      // Add new job to postedJobs state
-      if (response && response.job) {
-        setPostedJobs([...postedJobs, response.job]);
-      }
-      
-      // Show SweetAlert success message
-      Swal.fire({
-        title: 'Job Posting Successful!',
-        text: 'You have successfully posted the job.',
-        icon: 'success',
-        confirmButtonText: 'Go to dashboard',
-      }).then(() => {
-        navigate('/employer_dashboard', { state: { refreshJob: true } }); // Redirect to dashboard
-      });
-
-      setFormData({
-        jobTitle: '',
-        educationalLevel: '',
-        jobDescription: '',
-        salaryRange: '',
-        jobCategory: '',
-        experienceLevel: '',
-        companyDescription: '',
-        skillRequired: '',
-        jobType: '',
-        jobDuration: '',
-        location: '',
-      });
-
-      setTimeout(() => {
-        setSuccessMessage('');
-      }, 3000);
-    } catch (error) {
-      if (axios.isAxiosError(error)) {
-        if (error.response && error.response.status === 422) {
-          console.error('Validation errors:', JSON.stringify(error.response.data.errors, null, 2));
-        } else {
-          console.error('Registration failed:', error);
-        }
-      } else {
-        console.error('An unexpected error occurred:', error);
-      }
-      
-      if (axios.isAxiosError(error) && error.response) {
-        // Handle backend validation errors
-        const responseData = error.response.data as ErrorResponse;
-
-        if (responseData.errors) {
-          // Display the first error message
-          const firstErrorKey = Object.keys(responseData.errors)[0];
-          const firstErrorMessage = responseData.errors[firstErrorKey][0];
-          setErrorMessage(firstErrorMessage);
-        } else {
-          setErrorMessage('Job Posting failed. Please try again.');
-        }
-      }
-
-      console.log('Job Posting failed:', error);
-    }
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  
+  // Transform data to snake_case before sending
+  const transformedData = {
+    job_title: formData.jobTitle,
+    educational_level: formData.educationalLevel,
+    job_description: formData.jobDescription,
+    salary_range: formData.salaryRange,
+    job_category: formData.jobCategory,
+    experience_level: formData.experienceLevel,
+    company_description: formData.companyDescription,
+    skill_required: formData.skillRequired,
+    job_type: formData.jobType,
+    job_duration: formData.jobDuration,
+    location: formData.location
   };
+
+  try {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      throw new Error('No token found');
+    }
+
+    // call the postJob function with transformed data
+    const response = await axios.post(
+      'http://localhost:8000/api/jobPost',
+      transformedData,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    // Rest of your success handling code...
+    setSuccessMessage('Job Posting successful!');
+    setIsJobPosted(true);
+    
+    // Show SweetAlert success message
+    Swal.fire({
+      title: 'Job Posting Successful!',
+      text: 'You have successfully posted the job.',
+      icon: 'success',
+      confirmButtonText: 'Go to dashboard',
+    }).then(() => {
+      navigate('/employer_dashboard', { state: { refreshJob: true } });
+    });
+
+    // Reset form
+    setFormData({
+      jobTitle: '',
+      educationalLevel: '',
+      jobDescription: '',
+      salaryRange: '',
+      jobCategory: domain,
+      experienceLevel: '',
+      companyDescription: organisationName || '',
+      skillRequired: '',
+      jobType: '',
+      jobDuration: '',
+      location: '',
+    });
+
+  } catch (error) {
+    // Error handling remains the same
+    if (axios.isAxiosError(error)) {
+      if (error.response && error.response.status === 422) {
+        console.error('Validation errors:', JSON.stringify(error.response.data.errors, null, 2));
+        setErrorMessage('Please fill in all required fields correctly.');
+      } else {
+        console.error('Job posting failed:', error);
+        setErrorMessage('Job posting failed. Please try again.');
+      }
+    } else {
+      console.error('An unexpected error occurred:', error);
+      setErrorMessage('An unexpected error occurred.');
+    }
+  }
+};
 
   return (
     <div className="bg-gradient-to-b from-blue-800 to-blue-950 min-h-screen pb-10 w-screen">

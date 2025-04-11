@@ -18,6 +18,8 @@ use Carbon\Carbon;
 use App\Models\Applicants;
 use App\Events\NewApplicationEvent;
 use Illuminate\Support\Facades\Log;
+use App\Models\LoginDate;
+use Dompdf\Dompdf;
 
 
 
@@ -33,7 +35,7 @@ class AutheController extends Controller
             'firstName' => 'required|string',
             'lastName' => 'required|string',
             'email' => 'required|email|max:255|unique:users',
-            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048', // Validate the image
+            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             'code' => 'required|string|max:10',
             'contactNumber' => 'required|string',
             'gender' => 'required|string|in:Male,Female',
@@ -57,7 +59,7 @@ class AutheController extends Controller
             'first_name' => $request->firstName,
             'last_name' => $request->lastName,
             'email' => $request->email,
-            'image_url' => $imageUrl, // Save the image URL
+            'image_url' => $imageUrl, 
             'code' => $request->code,
             'contact_number' => $request->contactNumber,
             'gender' => $request->gender,
@@ -77,79 +79,87 @@ class AutheController extends Controller
 
       // Login in an existing user 
 
-      public function login(Request $request)   {
-          // Validate email and password
-          $request->validate([
-              'email' => 'required|email',
-              'password' => 'required',
-          ]);
-      
-          // Attempt to authenticate the user
-          if (!Auth::attempt($request->only('email', 'password'))) {
-            
-              return response()->json([
-                  'message' => 'Invalid credentials',
-              ], 401);
-          }
-      
-          // Fetch the authenticated user
-          $user = User::where('email', $request->email)->first();
-                     // Generate a token
-    $token = $user->createToken('auth_token')->plainTextToken;
-    if (Auth::check()) {
-        $user = Auth::user();
-        $today = Carbon::now()->toDateString(); // Get today's date as a string
-
-        // Fetch the existing login dates
-        $loginDates = $user->login_dates ?? [];
-
-        // Add today's date if it's not already in the array
-        if (!in_array($today, $loginDates)) {
-            $loginDates[] = $today;
-            $user->login_dates = $loginDates;
-            $user->save();
+      public function login(Request $request) {
+        $request->validate([
+            'email' => 'required|email',
+            'password' => 'required',
+        ]);
+    
+        if (!Auth::attempt($request->only('email', 'password'))) {
+            return response()->json(['message' => 'Invalid credentials'], 401);
         }
+    
+        $user = Auth::user();
+        $today = now()->toDateString();
+        
+        // Initialize login_dates if it doesn't exist
+        $loginDates = $user->login_dates ?? [];
+        $today = now()->format('Y-m-d');
+        
+         // Add today's date if not already present
+    if (!in_array($today, $loginDates)) {
+        $loginDates[] = $today;
+        $user->login_dates = $loginDates;
+        $user->save();
+        
+        // Also store in LoginDate model
+        LoginDate::create([
+            'user_id' => $user->id,
+            'login_date' => $today
+        ]);
     }
-
-          if (!$user) {
-              return response()->json([
-                  'message' => 'User not found',
-              ], 404);
-          }
-
-    // Record the login date
-    \Log::info('Before update:', ['login_dates' => $user->login_dates]);
-    $loginDates = $user->login_dates ?? []; // Ensure $loginDates is an array
-    \Log::info('After update:', ['login_dates' => $loginDates]);
-    if (!is_array($loginDates)) {
-        $loginDates = []; // Initialize as an array if it's not
-    }
-    $loginDates[] = now()->toDateString(); // Add today's date
-    $user->login_dates = $loginDates;
-    $user->save();
-      
-          // Return success response with user data
-          return response()->json([
-              'message' => 'Login successful!',
-              'user' => [
-                  'email' => $user->email,
-                  'image' => asset($user->image_url), // Use asset() to generate the full URL // To be able to display the image during the redirection
-                  'first_name' => $user->first_name,
-                  'last_name' => $user->last_name,
-                  
-              ],
-              'token' => $token, // Ensure this is included
-              'redirect' => '/dashboard', // Add a redirect URL for the frontend
-          ]);
-      }
-
-      public function getLoginDates(Request $request) {
-        $user = $request->user();
+    
+        $token = $user->createToken('auth_token')->plainTextToken;
+    
         return response()->json([
-            'login_dates' => $user->login_dates ?? [],
+            'message' => 'Login successful!',
+            'user' => [
+                'email' => $user->email,
+                'image' => asset($user->image_url),
+                'first_name' => $user->first_name,
+                'last_name' => $user->last_name,
+            ],
+            'token' => $token,
+            'redirect' => '/dashboard',
         ]);
     }
 
+    public function getLoginDates(Request $request) {
+        $user = $request->user();
+        
+        // Get dates from both sources and ensure proper format
+        $userDates = $user->login_dates ?? [];
+        $modelDates = LoginDate::where('user_id', $user->id)
+            ->pluck('login_date')
+            ->map(function ($date) {
+                return $date instanceof \DateTimeInterface 
+                    ? $date->format('Y-m-d') 
+                    : (string) $date;
+            })
+            ->toArray();
+        
+        // Combine and deduplicate
+        $allDates = array_unique(array_merge(
+            $this->normalizeDates($userDates),
+            $modelDates
+        ));
+        
+        return response()->json([
+            'login_dates' => array_values($allDates),
+        ]);
+    }
+    
+    protected function normalizeDates(array $dates): array
+    {
+        return array_map(function ($date) {
+            try {
+                return \Carbon\Carbon::parse($date)->format('Y-m-d');
+            } catch (\Exception $e) {
+                \Log::error('Failed to normalize date', ['date' => $date, 'error' => $e]);
+                return null;
+            }
+        }, array_filter($dates));
+    }
  
 
 
@@ -419,33 +429,34 @@ public function getUser(Request $request) {
      ]);
  }
 
- public function applyForJob(Request $request, $JobId)
+ public function applyForJob(Request $request, $jobId)
  {
+     \Log::info('Starting application process', ['jobId' => $jobId]);
+ 
      try {
+         // Validate request
          $request->validate([
              'video' => 'required|file|mimetypes:video/mp4,video/quicktime|max:50000',
              'resume' => 'required|file|mimes:pdf,doc,docx|max:5120',
-             'convert_resume' => 'sometimes|boolean',
          ]);
  
          $user = $request->user();
-         $job = JobPosting::findOrFail($JobId);
  
-         if (Applicants::where('job_id', $JobId)->where('email', $user->email)->exists()) {
-             return response()->json(['message' => 'You have already applied for this job.'], 400);
+         // Check for existing application
+         if (Applicants::where('job_id', $jobId)->where('email', $user->email)->exists()) {
+             return response()->json(['message' => 'You have already applied for this job.'], 409);
          }
  
-         // Process video upload
-         $videoPath = $this->processVideoUpload($request->file('video'), $user->id, $JobId);
-         // Process resume
-         $resumePath = $this->processResumeUpload(
-             $request->file('resume'), 
-             $request->boolean('convert_resume')
-         );
+         // Handle video upload
+         $videoPath = $request->file('video')->store('public/applications/videos');
  
-         // Create application record with full storage paths
+         // Handle resume upload and conversion
+         $resumeFile = $request->file('resume');
+         $resumePath = $this->processResumeUpload($resumeFile);
+ 
+         // Create application with all required fields
          $application = Applicants::create([
-             'job_id' => $JobId,
+             'job_id' => $jobId,
              'first_name' => $user->first_name,
              'last_name' => $user->last_name,
              'email' => $user->email,
@@ -459,8 +470,8 @@ public function getUser(Request $request) {
              'code' => $user->code,
              'application_date' => now()->toDateString(),
              'status' => 'pending',
-             'video_url' => 'storage/'.$videoPath, // Store with storage prefix
-             'resume_url' => 'storage/'.$resumePath, // Store with storage prefix
+             'video_url' => '/storage/' . str_replace('public/', '', $videoPath),
+             'resume_url' => '/storage/' . str_replace('public/', '', $resumePath),
          ]);
  
          event(new NewApplicationEvent($application));
@@ -469,73 +480,109 @@ public function getUser(Request $request) {
              'message' => 'Application submitted successfully!',
              'application' => $application,
          ], 201);
- 
      } catch (\Exception $e) {
-         \Log::error('Error applying for job:', ['error' => $e->getMessage()]);
-         return response()->json([
-             'message' => 'Failed to apply for the job.',
-             'error' => $e->getMessage(),
-         ], 500);
-     }
- }
- 
- protected function processVideoUpload($videoFile, $userId, $jobId)
- {
-     try {
-         $filename = 'video_' . $userId . '_' . $jobId . '_' . time() . '.mp4';
-         
-         // Store video in public storage
-         $path = $videoFile->storeAs(
-             'applications/videos',
-             $filename,
-             ['disk' => 'public']
-         );
-         
-         return $path; // This will return 'applications/videos/filename.mp4'
-     } catch (\Exception $e) {
-         \Log::error('Video upload failed:', ['error' => $e->getMessage()]);
-         throw new \Exception('Failed to upload video');
+         \Log::error('Application error:', ['error' => $e->getMessage()]);
+         return response()->json(['message' => 'Failed to submit application'], 500);
      }
  }
  
  
- 
- protected function processResumeUpload($resumeFile, $convert)
+ protected function processResumeUpload($resumeFile)
  {
      try {
-        \Log::info('Processing resume upload', [
-            'original_name' => $resumeFile->getClientOriginalName(),
-            'size' => $resumeFile->getSize(),
-            'mime_type' => $resumeFile->getMimeType(),
-            'convert' => $convert
-        ]);
-
          $extension = $resumeFile->getClientOriginalExtension();
-         $filename = 'resume_' . time() . '.' . ($convert ? 'pdf' : $extension);
-         
-         if ($convert && in_array($extension, ['doc', 'docx'])) {
-             // Implement your DOC to PDF conversion here
-             // For now, we'll just store the original
-             \Log::warning('Resume conversion requested but not implemented');
+         $filename = 'resume_' . time() . '.pdf';
+         $path = 'public/applications/resumes/' . $filename;
+ 
+         if ($extension !== 'pdf') {
+             // Convert to PDF using Dompdf
+             $pdf = new Dompdf();
+             $pdf->loadHtml(file_get_contents($resumeFile->getRealPath()));
+             $pdf->render();
+             Storage::put($path, $pdf->output());
+         } else {
+             $path = $resumeFile->storeAs('public/applications/resumes', $filename);
          }
-         
-         $path = $resumeFile->storeAs(
-             'applications/resumes',
-             $filename,
-             ['disk' => 'public', 'visibility' => 'public']
-         );
-
-         \Log::info('Resume stored successfully', ['path' => $path]);
-         
+ 
          return $path;
      } catch (\Exception $e) {
          \Log::error('Resume upload failed:', ['error' => $e->getMessage()]);
-         throw new \Exception('Failed to upload resume');
+         throw new \Exception('Failed to upload or convert resume');
      }
  }
-
- public function uploadChunk(Request $request, $jobId)
+ protected function checkFileExists($path)
 {
+    $fullPath = storage_path('app/public/' . $path);
+    $exists = file_exists($fullPath);
+    \Log::info('Checking file existence', [
+        'path' => $path,
+        'full_path' => $fullPath,
+        'exists' => $exists
+    ]);
+    return $exists;
+}
+
+public function checkFiles($id)
+{
+    try {
+        $applicant = Applicants::findOrFail($id);
+        
+        $videoExists = $applicant->video_url ? $this->checkFileExists($applicant->video_url) : false;
+        $resumeExists = $applicant->resume_url ? $this->checkFileExists($applicant->resume_url) : false;
+        
+        return response()->json([
+            'video_exists' => $videoExists,
+            'resume_exists' => $resumeExists,
+            'video_path' => $applicant->video_url,
+            'resume_path' => $applicant->resume_url,
+            'storage_path' => storage_path('app/public')
+        ]);
+    } catch (\Exception $e) {
+        return response()->json(['error' => $e->getMessage()], 500);
+    }
+}
+
+protected function processVideoUpload($videoFile, $userId, $jobId)
+{
+    try {
+        $filename = 'video_' . $userId . '_' . $jobId . '_' . time() . '.mp4';
+        $path = $videoFile->storeAs('applications/videos', $filename, 'public');
+        return $path; // Ensure this returns the correct path
+    } catch (\Exception $e) {
+        \Log::error('Video upload failed:', ['error' => $e->getMessage()]);
+        throw new \Exception('Failed to upload video');
+    }
+}
+
+// protected function processResumeUpload($resumeFile, $convert)
+// {
+//     try {
+//         $extension = $convert ? 'pdf' : $resumeFile->getClientOriginalExtension();
+//         $filename = 'resume_' . time() . '.' . $extension;
+//         $path = $resumeFile->storeAs('applications/resumes', $filename, 'public');
+//         return $path; // Ensure this returns the correct path
+//     } catch (\Exception $e) {
+//         \Log::error('Resume upload failed:', ['error' => $e->getMessage()]);
+//         throw new \Exception('Failed to upload resume');
+//     }
+// }
+
+
+
+public function uploadChunk(Request $request, $jobId)
+{
+    \Log::info('Starting chunk upload', [
+        'job_id' => $jobId,
+        'user_id' => $request->user()->id,
+        'chunk_index' => $request->input('chunkIndex'),
+        'total_chunks' => $request->input('totalChunks'),
+        'file_type' => $request->input('type'),
+        'file_size' => $request->file('chunk')->getSize(),
+        'timestamp' => now()->toDateTimeString(),
+        'request_data' => $request->all(), 
+        'files' => $request->file() 
+    ]);
+
     try {
         $request->validate([
             'chunk' => 'required|file',
@@ -544,48 +591,84 @@ public function getUser(Request $request) {
             'filename' => 'required|string',
             'type' => 'required|in:video,resume'
         ]);
-        \Log::info('Upload chunk request data:', [
-            'has_chunk' => $request->hasFile('chunk'),
-            'chunkIndex' => $request->input('chunkIndex'),
-            'filename' => $request->input('filename'),
-            'type' => $request->input('type')
-        ]);
 
-        $user = $request->user();
-        $chunk = $request->file('chunk');
-        $chunkIndex = $request->input('chunkIndex');
-        $totalChunks = $request->input('totalChunks');
-        $filename = $request->input('filename');
+         // Ensure the chunk file exists
+         if (!$request->hasFile('chunk')) {
+            \Log::error('No chunk file found in request');
+            return response()->json(['message' => 'No file uploaded'], 400);
+        }
+
         $type = $request->input('type');
-
-        // Create temporary directory
-        $tempDir = storage_path("app/public/temp/{$type}s/{$user->id}_{$jobId}");
+        $userId = $request->user()->id;
+        $tempDir = storage_path("app/temp/{$type}_uploads/{$userId}_{$jobId}");
+        
+        \Log::debug('Creating temp directory if needed', ['path' => $tempDir]);
+        
         if (!file_exists($tempDir)) {
             mkdir($tempDir, 0777, true);
         }
 
-        // Save the chunk
-        $chunk->move($tempDir, $chunkIndex);
+        $chunk = $request->file('chunk');
+        $chunkPath = "{$tempDir}/{$request->input('chunkIndex')}";
+        
+        $startTime = microtime(true);
+        $chunk->move($tempDir, $request->input('chunkIndex'));
+        $moveTime = microtime(true) - $startTime;
+        
+        \Log::debug('Chunk saved', [
+            'chunk_path' => $chunkPath,
+            'move_time_seconds' => round($moveTime, 3),
+            'timestamp' => now()->toDateTimeString()
+        ]);
 
-        // If this is the last chunk, combine all chunks
-        if ($chunkIndex == $totalChunks - 1) {
-            $extension = pathinfo($filename, PATHINFO_EXTENSION);
-            $finalFilename = "{$type}_{$user->id}_{$jobId}_" . time() . ".{$extension}";
-            $finalPath = storage_path("app/public/applications/{$type}s/{$finalFilename}");
+        if ($request->input('chunkIndex') == $request->input('totalChunks') - 1) {
+            \Log::info('Starting final file assembly', [
+                'total_chunks' => $request->input('totalChunks'),
+                'timestamp' => now()->toDateTimeString()
+            ]);
             
-            $finalFile = fopen($finalPath, 'wb');
-            for ($i = 0; $i < $totalChunks; $i++) {
+            $finalFilename = uniqid() . '_' . $request->input('filename');
+            $finalPath = "applications/{$type}s/{$finalFilename}";
+            $finalStoragePath = storage_path("app/public/{$finalPath}");
+            
+            $assemblyStart = microtime(true);
+            $finalHandle = fopen($finalStoragePath, 'wb');
+            
+            for ($i = 0; $i < $request->input('totalChunks'); $i++) {
                 $chunkPath = "{$tempDir}/{$i}";
+                $chunkStart = microtime(true);
                 $chunkContent = file_get_contents($chunkPath);
-                fwrite($finalFile, $chunkContent);
+                $readTime = microtime(true) - $chunkStart;
+                
+                $writeStart = microtime(true);
+                fwrite($finalHandle, $chunkContent);
+                $writeTime = microtime(true) - $writeStart;
+                
                 unlink($chunkPath);
+                
+                \Log::debug('Chunk processed', [
+                    'chunk_index' => $i,
+                    'read_time_seconds' => round($readTime, 4),
+                    'write_time_seconds' => round($writeTime, 4),
+                    'timestamp' => now()->toDateTimeString()
+                ]);
             }
-            fclose($finalFile);
-            rmdir($tempDir);
+            
+            fclose($finalHandle);
+            $assemblyTime = microtime(true) - $assemblyStart;
+            
+            @rmdir($tempDir);
+            
+            \Log::info('File assembly complete', [
+                'final_path' => $finalPath,
+                'total_size' => filesize($finalStoragePath),
+                'assembly_time_seconds' => round($assemblyTime, 2),
+                'timestamp' => now()->toDateTimeString()
+            ]);
 
             return response()->json([
                 'message' => 'File upload complete',
-                'path' => "applications/{$type}s/{$finalFilename}",
+                'path' => $finalPath,
                 'type' => $type
             ]);
         }
@@ -593,9 +676,96 @@ public function getUser(Request $request) {
         return response()->json(['message' => 'Chunk received']);
 
     } catch (\Exception $e) {
-        \Log::error('Chunk upload failed:', ['error' => $e->getMessage()]);
+        \Log::error('Chunk upload failed', [
+            'error' => $e->getMessage(),
+            'stack_trace' => $e->getTraceAsString(),
+            'timestamp' => now()->toDateTimeString()
+        ]);
         return response()->json([
             'message' => 'Failed to upload chunk',
+            'error' => $e->getMessage()
+        ], 500);
+    }
+}
+
+public function finalizeApplication(Request $request, $jobId)
+{
+    \Log::info('Starting application finalization', [
+        'job_id' => $jobId,
+        'user_id' => $request->user()->id,
+        'resume_file' => $request->input('resumeFileName'),
+        'video_file' => $request->input('videoFileName'),
+        'timestamp' => now()->toDateTimeString()
+    ]);
+
+    try {
+        $request->validate([
+            'resumeFileName' => 'required|string',
+            'videoFileName' => 'required|string'
+        ]);
+
+        $user = $request->user();
+        $job = JobPosting::findOrFail($jobId);
+
+        if (Applicants::where('job_id', $jobId)->where('email', $user->email)->exists()) {
+            \Log::warning('Duplicate application attempt', [
+                'job_id' => $jobId,
+                'user_email' => $user->email,
+                'timestamp' => now()->toDateTimeString()
+            ]);
+            return response()->json(['message' => 'You have already applied for this job.'], 409);
+        }
+
+        $applicationData = [
+            'job_id' => $jobId,
+            'first_name' => $user->first_name,
+            'last_name' => $user->last_name,
+            'email' => $user->email,
+            'qualification' => $user->qualification,
+            'experienceLevel' => $user->experience_level,
+            'educational_level' => $user->educational_level,
+            'gender' => $user->gender,
+            'image' => $user->image_url,
+            'contact_number' => $user->contact_number,
+            'address' => $user->address,
+            'code' => $user->code,
+            'application_date' => now()->toDateTimeString(),
+            'status' => 'pending',
+            'video_url' => '/storage/' . $request->videoFileName,
+            'resume_url' => '/storage/' . $request->resumeFileName,
+        ];
+
+        \Log::debug('Creating application record', $applicationData);
+        
+        $startTime = microtime(true);
+        $application = Applicants::create($applicationData);
+        $dbTime = microtime(true) - $startTime;
+        
+        \Log::info('Application record created', [
+            'application_id' => $application->id,
+            'db_insert_time_seconds' => round($dbTime, 3),
+            'timestamp' => now()->toDateTimeString()
+        ]);
+
+        event(new NewApplicationEvent($application));
+
+        \Log::info('Application finalized successfully', [
+            'application_id' => $application->id,
+            'timestamp' => now()->toDateTimeString()
+        ]);
+
+        return response()->json([
+            'message' => 'Application submitted successfully!'
+        ], 201);
+
+    } catch (\Exception $e) {
+        \Log::error('Error finalizing application', [
+            'error' => $e->getMessage(),
+            'stack_trace' => $e->getTraceAsString(),
+            'timestamp' => now()->toDateTimeString()
+        ]);
+        return response()->json([
+            'message' => 'Failed to submit application',
             'error' => $e->getMessage()
         ], 500);
     }
@@ -712,29 +882,30 @@ public function getApplyJobs(Request $request)
     }
 }
 
-public function updateApplicationStatus(Request $request, $applicantId)
-{
-    try {
-        $request->validate([
-            'status' => 'required|in:accepted,denied,pending'
-        ]);
+// public function updateApplicationStatus(Request $request, $applicantId)
+// {
+    
+//     try {
+//         $request->validate([
+//             'status' => 'required|in:accepted,denied,pending'
+//         ]);
 
-        $applicant = Applicants::findOrFail($applicantId);
-        $applicant->status = $request->status;
-        $applicant->save();
+//         $applicant = Applicants::findOrFail($applicantId);
+//         $applicant->status = $request->status;
+//         $applicant->save();
 
-        return response()->json([
-            'message' => 'Application status updated successfully',
-            'applicant' => $applicant
-        ]);
-    } catch (\Exception $e) {
-        \Log::error('Error updating application status:', ['error' => $e->getMessage()]);
-        return response()->json([
-            'message' => 'Failed to update application status',
-            'error' => $e->getMessage()
-        ], 500);
-    }
-}
+//         return response()->json([
+//             'message' => 'Application status updated successfully',
+//             'applicant' => $applicant
+//         ]);
+//     } catch (\Exception $e) {
+//         \Log::error('Error updating application status:', ['error' => $e->getMessage()]);
+//         return response()->json([
+//             'message' => 'Failed to update application status',
+//             'error' => $e->getMessage()
+//         ], 500);
+//     }
+// }
 
 public function getApplicant($id)
 {

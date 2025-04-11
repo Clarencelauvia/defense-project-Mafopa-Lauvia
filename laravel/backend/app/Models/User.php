@@ -75,4 +75,5 @@ public function savedJobs()
     return $this->belongsToMany(JobPosting::class, 'user_job_saving', 'user_id', 'job_id')
         ->withTimestamps(); // Optional: if you want to track when the job was saved
 }
+
 }

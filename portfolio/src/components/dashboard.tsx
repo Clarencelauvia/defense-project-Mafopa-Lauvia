@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import axios, { AxiosError } from 'axios';
 import Calendar from 'react-calendar';
 import 'react-calendar/dist/Calendar.css'; // Default styling
@@ -8,7 +8,9 @@ import { useLocation } from 'react-router-dom';
 import { useUser } from './refreshPage'; // Adjust the import path
 import 'aos/dist/aos.css';
 import AOS from 'aos';
-import { FaUser, FaBriefcase, FaCheckCircle, FaTimesCircle, FaBell, FaSignOutAlt } from 'react-icons/fa';
+import Pusher from 'pusher-js';
+import LoginFrequencyGraph from './LoginFrequencyGraph';
+import { FaUser, FaBriefcase, FaCheckCircle, FaTimesCircle, FaBell, FaSignOutAlt, FaUserCog } from 'react-icons/fa';
 
 // Interfaces
 interface LoginDate {
@@ -54,12 +56,12 @@ const Dashboard: React.FC = () => {
   const [displayCount, setDisplayCount] = useState(10);
   const [savedJobs, setSavedJobs] = useState<Job[]>([]);
   const [showAll, setShowAll] = useState(false);
-
+  const [pusher, setPusher] = useState<Pusher | null>(null);
   const [jobApplied, setJobApplied] = useState(0); // Example: Number of jobs applied
   const [applicationAccepted, setApplicationAccepted] = useState(0); // Example: Number of applications accepted
   const [applicationDenied, setApplicationDenied] = useState(0); // Example: Number of applications denied
   const [newlyPostedJobs, setNewlyPostedJobs] = useState(0); // Example: Number of newly posted jobs
-
+const navigate = useNavigate();
   useEffect(() => {
     AOS.init({
       duration: 1000,
@@ -89,35 +91,47 @@ const Dashboard: React.FC = () => {
   };
 
   // Fetch applied jobs
-  const fetchAppliedJobs = async() =>{
-    try{
+  const fetchAppliedJobs = async () => {
+    try {
       const token = localStorage.getItem('token');
-      if(!token){
+      if (!token) {
         console.log('No token found');
         return;
       }
-      const response = await axios.get('http://localhost:8000/api/apply-jobs',{
+      
+      const response = await axios.get('http://localhost:8000/api/apply-jobs', {
         headers: { Authorization: `Bearer ${token}` },
       });
-      console.log('Applied Jobs Response:', response.data); 
-
-      if (response.data && Array.isArray(response.data)) {
-      setJobApplied(response.data.length);
-    } else if (response.data && Array.isArray(response.data.appliedJobs)) {
-      setJobApplied(response.data.appliedJobs.length);
-    }
-    else if (response.data && typeof response.data.count === 'number') {
-      setJobApplied(response.data.count);
-    } 
-    else {
-      console.error('Unexpected response format:', response.data);
-      setJobApplied(0);
-    }
+  
+      // Handle different response formats
+      let count = 0;
+      if (Array.isArray(response.data)) {
+        count = response.data.length;
+      } else if (response.data?.appliedJobs && Array.isArray(response.data.appliedJobs)) {
+        count = response.data.appliedJobs.length;
+      } else if (typeof response.data?.count === 'number') {
+        count = response.data.count;
+      } else if (response.data) {
+        // If it's an object but we don't know its structure, try to count keys
+        count = Object.keys(response.data).length;
+      }
+  
+      setJobApplied(count);
     } catch (error) {
       console.error('Failed to fetch applied jobs:', error);
-      setJobApplied(0); 
+      setJobApplied(0);
     }
-  }
+  };
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchAppliedJobs().catch(error => {
+        console.error('Error in periodic job count fetch:', error);
+      });
+    }, 30000); // Refresh every 30 seconds
+  
+    return () => clearInterval(interval);
+  }, []);
 
   // Fetch application status
   const fetchApplicationStatus = async () =>{
@@ -202,16 +216,27 @@ const Dashboard: React.FC = () => {
     setDisplayCount((prevCount) => prevCount + 10);
   };
 
+
+useEffect(() => {
+  console.log('Received login dates:', loginDates);
+  if (loginDates.length > 0) {
+      console.log('Sample login date:', loginDates[0]);
+      console.log('Parsed sample date:', new Date(loginDates[0]));
+  }
+}, [loginDates]);
+
+
   // Custom tile content for calendar
   const tileContent = ({ date, view }: { date: Date; view: string }) => {
     if (view === 'month') {
-      const dateString = date.toISOString().split('T')[0];
-      if (loginDates.includes(dateString)) {
-        return <div className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center">✓</div>;
-      }
+        const dateString = date.toISOString().split('T')[0];
+        // Check if any login date matches this date
+        if (loginDates.some(loginDate => loginDate.startsWith(dateString))) {
+            return <div className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center">✓</div>;
+        }
     }
     return null;
-  };
+};
 
   const [isLoadingSavedJobs, setIsLoadingSavedJobs] = useState(false);
   // Function for saving jobs
@@ -327,12 +352,79 @@ const Dashboard: React.FC = () => {
   };
 
   const handleLogout = () => {
-    // Clear the token from local storage
-    localStorage.removeItem('token');
-
-    // Redirect to the login page immediately
-    window.location.href = '/employee_login';
+    Swal.fire({
+      title: 'Goodbye!',
+      text: `Thanks for using our platform, ${user?.first_name }!`,
+      icon: 'info',
+      confirmButtonText: 'OK',
+      timer: 3000, // Auto close after 3 seconds
+      timerProgressBar: true,
+      willClose: () => {
+        // Clear the token from local storage
+        localStorage.removeItem('token');
+        // Redirect to the login page
+        window.location.href = '/employee_login';
+      }
+    });
   };
+
+
+
+useEffect(() => {
+  // Initialize Pusher
+  const pusherClient = new Pusher('de6b8a16c9b286c69d8b', { // Your Pusher key
+    cluster: 'mt1',
+    forceTLS: true
+  });
+  setPusher(pusherClient);
+
+  return () => {
+    if (pusherClient) {
+      pusherClient.disconnect();
+    }
+  };
+}, []);
+
+useEffect(() => {
+  if (!pusher || !user?.id) return;
+
+  // Subscribe to channel for this user
+  const channel = pusher.subscribe(`user.${user.id}`);
+  
+  // Listen for new matching job events
+  channel.bind('App\\Events\\JobPosted', (data: any) => {
+    Swal.fire({
+      title: 'New Matching Job!',
+      html: `
+        <div>
+          <p><strong>${data.job.job_title}</strong></p>
+          <p>${data.job.company_description}</p>
+          <p>Location: ${data.job.location}</p>
+          <p>Salary: ${data.job.salary_range}</p>
+        </div>
+      `,
+      icon: 'info',
+      confirmButtonText: 'View Job',
+      showCancelButton: true,
+      cancelButtonText: 'Dismiss'
+    }).then((result) => {
+      if (result.isConfirmed) {
+        navigate(`/job/${data.job.id}`);
+      }
+    });
+    
+    // Refresh job recommendations
+    fetchJobs().then(jobsData => {
+      if (jobsData && user) {
+        setFilteredJobs(filterJobs(jobsData, user));
+      }
+    });
+  });
+
+  return () => {
+    channel.unbind('App\\Events\\JobPosted');
+  };
+}, [pusher, user, navigate]);
  
   return (
     <div className="bg-gradient-to-b from-blue-800 to-blue-950 min-h-screen w-screen">
@@ -395,7 +487,7 @@ const Dashboard: React.FC = () => {
             )}
           </div>
 
-          <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-4" data-aos="fade-right" data-aos-delay="300">
+          <div className="bg-white bg-opacity-10  backdrop-blur-md rounded-xl p-4" data-aos="fade-right" data-aos-delay="300">
             <nav className="text-white">
               <Link
                 to="/dashboard"
@@ -415,7 +507,13 @@ const Dashboard: React.FC = () => {
               >
                 <FaCheckCircle className="mr-3" /> Applications
               </Link>
-               <Link
+                 <Link
+                              to="/"
+                              className="flex items-center py-3 px-4 rounded-lg text-white mb-2 hover:bg-white hover:bg-opacity-10 transition-colors"
+                            >
+                              <FaUserCog className="mr-3" /> Discuss With Admin
+                            </Link>
+               <Link 
                      to=""  onClick={handleLogout}
                 className="flex items-center py-3 px-4 rounded-lg text-white mb-2 hover:bg-white hover:bg-opacity-10 transition-colors"
                >
@@ -449,7 +547,7 @@ const Dashboard: React.FC = () => {
                   <p className="text-3xl font-bold text-white mb-2">{jobApplied}</p>
                   <Link to="/applications" className="text-blue-300 hover:text-blue-200 text-sm">View Details →</Link>
                 </div>
-                
+                {/* Job accepted */}
                 <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-6 border border-green-300 border-opacity-30">
                   <div className="flex justify-between items-center mb-4">
                     <h3 className="text-lg font-semibold text-white">Accepted</h3>
@@ -458,9 +556,9 @@ const Dashboard: React.FC = () => {
                     </div>
                   </div>
                   <p className="text-3xl font-bold text-white mb-2">{applicationAccepted}</p>
-                  <Link to="/applications" className="text-green-300 hover:text-green-200 text-sm">View Details →</Link>
+                  <Link to="/applications?status=accepted" className="text-green-300 hover:text-green-200 text-sm">View Details →</Link>
                 </div>
-                
+                {/* job declined  */}
                 <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-6 border border-red-300 border-opacity-30">
                   <div className="flex justify-between items-center mb-4">
                     <h3 className="text-lg font-semibold text-white">Declined</h3>
@@ -469,7 +567,7 @@ const Dashboard: React.FC = () => {
                     </div>
                   </div>
                   <p className="text-3xl font-bold text-white mb-2">{applicationDenied}</p>
-                  <Link to="/applications" className="text-red-300 hover:text-red-200 text-sm">View Details →</Link>
+                  <Link to="/applications?status=denied" className="text-red-300 hover:text-red-200 text-sm">View Details →</Link>
                 </div>
                 
                 <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-6 border border-yellow-300 border-opacity-30">
@@ -501,7 +599,7 @@ const Dashboard: React.FC = () => {
                   ) : (
                     <>
                       <div className="space-y-4">
-                        {filteredJobs.slice(0, 2).map((job) => (
+                        {filteredJobs.slice(0, 1).map((job) => (
                           <div key={job.id} className="border border-blue-300 border-opacity-30 rounded-lg p-4 hover:bg-white hover:bg-opacity-5 transition-colors">
                             <h3 className="text-lg font-bold text-white">{job.job_category || job.job_title}</h3>
                             <p className="text-sm text-blue-200 mb-1">{job.company_description}</p>
@@ -517,7 +615,7 @@ const Dashboard: React.FC = () => {
                           </div>
                         ))}
                       </div>
-                      {filteredJobs.length > 2 && (
+                      {filteredJobs.length > 1 && (
   <div className="mt-4 text-center">
     <Link to="/all-recommended-jobs">
       <button className="bg-blue-600 bg-opacity-70 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors">
@@ -540,7 +638,7 @@ const Dashboard: React.FC = () => {
                   ) : savedJobs.length > 0 ? (
                     <>
                       <div className="space-y-4">
-                        {(showAll ? savedJobs : savedJobs.slice(0, 2)).map((job) => (
+                        {(showAll ? savedJobs : savedJobs.slice(0, 1)).map((job) => (
                           <div key={job.id} className="border border-blue-300 border-opacity-30 rounded-lg p-4 hover:bg-white hover:bg-opacity-5 transition-colors">
                             <h3 className="text-lg font-bold text-white">{job.job_category || job.job_title}</h3>
                             <p className="text-sm text-blue-200 mb-1">{job.company_description}</p>
@@ -556,11 +654,12 @@ const Dashboard: React.FC = () => {
                           </div>
                         ))}
                       </div>
-                      {savedJobs.length > 2 && (
+
+{savedJobs.length > 1 && (
   <div className="mt-4 text-center">
     <Link to="/all-saved-jobs">
       <button className="bg-blue-600 bg-opacity-70 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors">
-        {showAll ? 'See Less' : 'See More'}
+        {showAll ? 'See Less' : 'See All Saved Jobs'}
       </button>
     </Link>
   </div>
@@ -579,22 +678,41 @@ const Dashboard: React.FC = () => {
                 </div>
               </div>
 
-              {/* Login Activity Calendar */}
-              <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-6 mb-6" data-aos="fade-up" data-aos-delay="600">
-                <h2 className="text-xl font-semibold text-white mb-4">Login Activity Calendar</h2>
-                {isLoading ? (
-                  <div className="flex justify-center py-6">
-                    <p className="text-blue-200">Loading calendar data...</p>
-                  </div>
-                ) : (
-                  <div className="calendar-wrapper bg-white bg-opacity-5 p-4 rounded-lg">
-                    <Calendar 
-                      tileContent={tileContent} 
-                      className="border-0 rounded-lg shadow-md" 
-                    />
-                  </div>
-                )}
-              </div>
+          {/* Login Activity Section */}
+<div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6" data-aos="fade-up" data-aos-delay="600">
+  {/* Calendar - Now takes half width on larger screens */}
+  <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-6">
+    <h2 className="text-xl font-semibold text-white mb-4">Login Activity Calendar</h2>
+    {isLoading ? (
+      <div className="flex justify-center py-6">
+        <p className="text-blue-200">Loading calendar data...</p>
+      </div>
+    ) : (
+      <div className="calendar-wrapper bg-white bg-opacity-5 p-4 rounded-lg">
+        <Calendar 
+          tileContent={tileContent} 
+          className="border-0 rounded-lg shadow-md" 
+        />
+      </div>
+    )}
+  </div>
+
+  {/* Login Frequency Graph - Now takes half width on larger screens */}
+  <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-6">
+    <h2 className="text-xl font-semibold text-white mb-8">Monthly Login Frequency</h2>
+    {isLoading ? (
+      <div className="flex justify-center py-6">
+        <p className="text-blue-200">Loading login data...</p>
+      </div>
+    ) : loginDates.length > 0 ? (
+      <LoginFrequencyGraph loginDates={loginDates} />
+    ) : (
+      <div className="flex items-center justify-center h-full">
+        <p className="text-blue-200">No login data available</p>
+      </div>
+    )}
+  </div>
+</div>
             </>
           )}
         </div>

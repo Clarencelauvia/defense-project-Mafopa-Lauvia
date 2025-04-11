@@ -44,6 +44,10 @@ return [
             'driver' => 'session',
             'provider' => 'entre_infs', // Use the custom provider
         ],
+        'admin' => [
+            'driver' => 'sanctum',
+            'provider' => 'admins',
+        ],
     ],
 
     /*
@@ -72,6 +76,10 @@ return [
         'entre_infs' => [ // Define the custom provider
         'driver' => 'eloquent',
         'model' => App\Models\EntreInf::class, // Use the correct model for the `entre_inf` table
+    ],
+    'admins' => [
+        'driver' => 'eloquent',
+        'model' => App\Models\Admin::class,
     ],
 
         // 'users' => [

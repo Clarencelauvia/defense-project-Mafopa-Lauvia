@@ -1,10 +1,15 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
-import { useParams, useLocation, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import Swal from 'sweetalert2';
-import { useNavigate } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faArrowLeft } from '@fortawesome/free-solid-svg-icons';
+import { 
+  faCheckCircle, 
+  faTimesCircle, 
+  faEnvelope,
+  faFilePdf,
+  faVideo
+} from '@fortawesome/free-solid-svg-icons';
 import AOS from 'aos';
 import 'aos/dist/aos.css';
 
@@ -24,19 +29,17 @@ interface Applicant {
   contact_number?: string;
   gender?: string;
   image?: string;
-  video_url?: string;
-  resume_url?: string;
+  video_url?: string | null;
+  resume_url?: string | null;
 }
 
 const ApplicantProfilePage: React.FC = () => {
-  const location = useLocation();
   const { id } = useParams<{ id: string }>();
   const [applicant, setApplicant] = useState<Applicant | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [processing, setProcessing] = useState(false);
   const navigate = useNavigate();
-
-  const applicantFromState = location.state?.applicantData;
 
   useEffect(() => {
     AOS.init({
@@ -45,150 +48,149 @@ const ApplicantProfilePage: React.FC = () => {
     });
   }, []);
 
-  useEffect(() => {
-    if (applicantFromState) {
-      setApplicant(applicantFromState);
+  const fetchApplicant = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get<Applicant>(
+        `http://localhost:8000/api/employer/applicant/${id}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      setApplicant({
+        ...response.data,
+        video_url: response.data.video_url ? 
+          response.data.video_url.startsWith('http') ? 
+            response.data.video_url : 
+            `${window.location.origin}${response.data.video_url}` : 
+          null,
+        resume_url: response.data.resume_url ? 
+          response.data.resume_url.startsWith('http') ? 
+            response.data.resume_url : 
+            `${window.location.origin}${response.data.resume_url}` : 
+          null
+      });
+    } catch (err) {
+      setError('Failed to fetch applicant details');
+      console.error('Error fetching applicant:', err);
+    } finally {
       setLoading(false);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    fetchApplicant();
+  }, [fetchApplicant]);
+
+  const updateApplicationStatus = useCallback(async (status: 'accepted' | 'denied') => {
+    if (!applicant?.id) return;
+
+    try {
+      setProcessing(true);
+      const token = localStorage.getItem('token');
+      
+      await axios.put(
+        `http://localhost:8000/api/employer/applicants/${applicant.id}/status`,
+        { status },
+        { 
+          headers: { 
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          } 
+        }
+      );
+
+      const successMessage = status === 'accepted' 
+        ? 'Application Accepted! The applicant has been notified.' 
+        : 'Application Rejected. The applicant has been notified.';
+
+      await Swal.fire({
+        title: status === 'accepted' ? 'Success!' : 'Rejected',
+        text: successMessage,
+        icon: status === 'accepted' ? 'success' : 'info',
+        confirmButtonColor: '#3085d6'
+      });
+
+      setApplicant(prev => prev ? { ...prev, status } : null);
+    } catch (err) {
+      console.error('Status update error:', err);
+      Swal.fire({
+        title: 'Error!',
+        text: 'Failed to update application status',
+        icon: 'error',
+        confirmButtonColor: '#d33'
+      });
+    } finally {
+      setProcessing(false);
+    }
+  }, [applicant]);
+
+  const handleContactApplicant = useCallback(async () => {
+    if (!applicant?.contact_number) {
+      await Swal.fire({
+        icon: 'warning',
+        title: 'Missing Information',
+        text: 'No contact number available for this applicant.'
+      });
       return;
     }
 
-    const fetchApplicant = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        const response = await axios.get(`http://localhost:8000/api/employer/applicant/${id}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        setApplicant(response.data);
-      } catch (error) {
-        setError('Failed to fetch applicant details. Please try again later.');
-        console.error('Error fetching applicant details:', error);
-        Swal.fire({
-          icon: 'error',
-          title: 'Error',
-          text: 'Failed to fetch applicant details.',
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (id) {
-      fetchApplicant();
-    }
-  }, [id, applicantFromState]);
-
-  const handleContactApplicant = async () => {
-    const organisationName = "Your Organisation Name";
-    const qualification = applicant?.qualification || "a job";
-
-    const message = `You have been contacted by ${organisationName} because you applied for ${qualification} from PAM. Connect to have more information.`;
-
     try {
+      setProcessing(true);
       const token = localStorage.getItem('token');
-      const response = await axios.post(
+      
+      await axios.post(
         'http://localhost:8000/api/send-sms',
-        {
-          to: applicant?.contact_number,
-          message: message,
+        { 
+          to: applicant.contact_number, 
+          message: `You have been contacted regarding your application. Please check your email for details.` 
         },
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-
-      if (response.data.success) {
-        Swal.fire({
-          icon: 'success',
-          title: 'SMS Sent',
-          text: 'The applicant has been notified.',
-        });
-      } else {
-        Swal.fire({
-          icon: 'error',
-          title: 'Error',
-          text: 'Failed to send SMS.',
-        });
-      }
-    } catch (error) {
-      console.error('Error sending SMS:', error);
-      Swal.fire({
-        icon: 'error',
-        title: 'Error',
-        text: 'Failed to send SMS.',
-      });
-    }
-  };
-
-  const handleAcceptApplication = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      await axios.put(
-        `http://localhost:8000/api/applicants/${applicant?.id}/status`,
-        { status: 'accepted' },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      
-      Swal.fire({
-        icon: 'success',
-        title: 'Application Accepted',
-        text: 'The applicant has been notified.',
-      }).then(() => {
-        if (applicant) {
-          setApplicant({ ...applicant, status: 'accepted' });
-        }
-      });
-    } catch (error) {
-      console.error('Error accepting application:', error);
-      Swal.fire({
-        icon: 'error',
-        title: 'Error',
-        text: 'Failed to accept application.',
-      });
-    }
-  };
 
-  const handleRejectApplication = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      await axios.put(
-        `http://localhost:8000/api/applicants/${applicant?.id}/status`,
-        { status: 'denied' },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      
-      Swal.fire({
+      await Swal.fire({
         icon: 'success',
-        title: 'Application Rejected',
+        title: 'Message Sent',
         text: 'The applicant has been notified.',
-      }).then(() => {
-        if (applicant) {
-          setApplicant({ ...applicant, status: 'denied' });
-        }
       });
-    } catch (error) {
-      console.error('Error rejecting application:', error);
-      Swal.fire({
+    } catch (err) {
+      console.error('Contact error:', err);
+      await Swal.fire({
         icon: 'error',
         title: 'Error',
-        text: 'Failed to reject application.',
+        text: 'Failed to contact applicant',
       });
+    } finally {
+      setProcessing(false);
     }
-  };
+  }, [applicant]);
 
   if (loading) {
-    return <div className="flex justify-center items-center h-screen">Loading...</div>;
+    return (
+      <div className="text-white w-screen h-screen bg-gradient-to-b from-blue-800 to-blue-950">
+        Loading...
+      </div>
+    );
   }
 
   if (error) {
-    return <div className="flex justify-center items-center h-screen" style={{ color: 'red' }}>{error}</div>;
+    return (
+      <div className="flex justify-center items-center h-screen bg-gradient-to-b from-blue-800 to-blue-950 text-red-500">
+        {error}
+      </div>
+    );
   }
 
   if (!applicant) {
-    return <div className="flex justify-center items-center h-screen">No applicant found.</div>;
+    return (
+      <div className="flex justify-center items-center h-screen bg-gradient-to-b from-blue-800 to-blue-950 text-white">
+        No applicant found.
+      </div>
+    );
   }
 
   return (
     <div className="bg-gradient-to-b from-blue-800 to-blue-950 min-h-screen w-screen">
+      {/* Navigation Bar */}
       <nav className="flex items-center justify-between px-8 py-4 bg-white bg-opacity-10 backdrop-blur-md shadow-md mb-4">
         <Link to="/" className="flex items-center">
           <div className="w-[60px] h-[60px] bg-black rounded-full overflow-hidden">
@@ -207,136 +209,207 @@ const ApplicantProfilePage: React.FC = () => {
         </div>
       </nav>
 
-      <div className="container mx-auto px-4">
+      <div className="container mx-auto px-4 flex flex-col items-center">
         <button
-          onClick={() => navigate(-1)}
-          className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center mb-4"
+          onClick={() => navigate('/employer_dashboard')}
+          className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 mb-4 self-start"
         >
-          <FontAwesomeIcon icon={faArrowLeft} className="mr-2" />
-          Previous
+          Back to Dashboard
         </button>
 
-        <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-6 shadow-md"
-          data-aos="zoom-in"
-          data-aos-delay="300">
-          
-          <div className="flex flex-col md:flex-row gap-6">
-            {/* Left Column - Profile Info */}
-            <div className="md:w-1/2">
-              <div className="flex justify-center mb-4">
-                {applicant.image ? (
-                  <img
-                    src={applicant.image.startsWith('http') ? applicant.image : `http://localhost:8000${applicant.image}`}
-                    alt={`${applicant.first_name} ${applicant.last_name}`}
-                    className="w-32 h-32 rounded-full object-cover"
-                  />
-                ) : (
-                  <div className="w-32 h-32 rounded-full bg-gray-300 flex items-center justify-center text-white text-4xl font-bold">
-                    {applicant.first_name.charAt(0).toUpperCase()}
-                    {applicant.last_name.charAt(0).toUpperCase()}
-                  </div>
-                )}
-              </div>
-              
-              <h2 className="text-2xl font-bold text-white mb-4 text-center">
-                {applicant.first_name} {applicant.last_name}
-              </h2>
-              
-              <div className="space-y-2">
-                <p className="text-md text-white"><strong>Email:</strong> {applicant.email}</p>
-                <p className="text-md text-white"><strong>Qualification:</strong> {applicant.qualification || 'Not specified'}</p>
-                <p className="text-md text-white"><strong>Experience:</strong> {applicant.experienceLevel || 'Not specified'}</p>
-                <p className="text-md text-white"><strong>Education:</strong> {applicant.educational_level || 'Not specified'}</p>
-                <p className="text-md text-white"><strong>Address:</strong> {applicant.address || 'Not specified'}</p>
-                <p className="text-md text-white"><strong>Country Code:</strong> {applicant.code || 'Not specified'}</p>
-                <p className="text-md text-white"><strong>Contact Number:</strong> {applicant.contact_number || 'Not specified'}</p>
-                <p className="text-md text-white"><strong>Gender:</strong> {applicant.gender || 'Not specified'}</p>
-                <p className="text-md text-white"><strong>Applied on:</strong> {new Date(applicant.application_date).toLocaleDateString()}</p>
-                <p className="text-md text-white">
-                  <strong>Status:</strong> 
-                  <span className={`ml-2 ${
-                    applicant.status === 'accepted' ? 'text-green-500' :
-                    applicant.status === 'denied' ? 'text-red-500' : 'text-yellow-500'
+        {/* Main Profile Content - Centered */}
+        <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-6 shadow-md mb-6 w-full max-w-4xl" 
+            data-aos="zoom-in"
+            data-aos-delay="100">
+          {/* Applicant Header */}
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
+            <div className="flex items-center">
+              {applicant.image ? (
+             
+                <img src={`http://localhost:8000${applicant.image}`} alt="Profile" 
+                 className="h-16 w-16 rounded-full object-cover" />
+                
+              ) : (
+                <div className="h-16 w-16 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 text-xl font-bold">
+                  {applicant.first_name.charAt(0)}{applicant.last_name.charAt(0)}
+                </div>
+              )}
+              <div className="ml-4">
+                <h2 className="text-xl font-semibold text-white">
+                  {applicant.first_name} {applicant.last_name}
+                </h2>
+                <p className="text-sm text-gray-300">{applicant.email}</p>
+                <div className="mt-1 flex items-center">
+                  <span className={`px-2 py-1 text-xs rounded-full ${
+                    applicant.status === 'accepted' ? 'bg-green-100 text-green-800' :
+                    applicant.status === 'denied' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'
                   }`}>
-                    {applicant.status}
+                    {applicant.status.charAt(0).toUpperCase() + applicant.status.slice(1)}
                   </span>
-                </p>
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 md:mt-0 flex space-x-3">
+              <button
+                onClick={() => updateApplicationStatus('accepted')}
+                disabled={applicant.status === 'accepted' || processing}
+                className={`inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
+                  applicant.status === 'accepted' ? 'bg-green-300' : 'bg-green-600 hover:bg-green-700'
+                } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500`}
+              >
+                <FontAwesomeIcon icon={faCheckCircle} className="mr-2" />
+                {processing && applicant.status !== 'accepted' ? 'Processing...' : 'Accept'}
+              </button>
+              <button
+                onClick={() => updateApplicationStatus('denied')}
+                disabled={applicant.status === 'denied' || processing}
+                className={`inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
+                  applicant.status === 'denied' ? 'bg-red-300' : 'bg-red-600 hover:bg-red-700'
+                } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500`}
+              >
+                <FontAwesomeIcon icon={faTimesCircle} className="mr-2" />
+                {processing && applicant.status !== 'denied' ? 'Processing...' : 'Reject'}
+              </button>
+              <button
+                onClick={handleContactApplicant}
+                disabled={processing || !applicant.contact_number}
+                className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              >
+                <FontAwesomeIcon icon={faEnvelope} className="mr-2" />
+                Contact
+              </button>
+            </div>
+          </div>
+
+          {/* Applicant Details */}
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+            <div className="bg-white bg-opacity-10 p-4 rounded-lg">
+              <h3 className="text-lg font-medium text-white mb-4">Personal Information</h3>
+              <div className="space-y-4">
+                <div>
+                  <p className="text-sm font-medium text-gray-300">Full Name</p>
+                  <p className="mt-1 text-sm text-white">
+                    {applicant.first_name} {applicant.last_name}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-300">Email</p>
+                  <p className="mt-1 text-sm text-white">{applicant.email}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-300">Phone</p>
+                  <p className="mt-1 text-sm text-white">
+                    {applicant.code} {applicant.contact_number}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-300">Gender</p>
+                  <p className="mt-1 text-sm text-white">{applicant.gender || 'Not specified'}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-300">Address</p>
+                  <p className="mt-1 text-sm text-white">{applicant.address || 'Not specified'}</p>
+                </div>
               </div>
             </div>
 
-            {/* Right Column - Application Materials */}
-        
-         
-<div className="md:w-1/2">
-  <div className="bg-white bg-opacity-5 rounded-lg p-4 mb-4">
-    <h3 className="text-lg font-semibold text-white mb-2">Application Materials</h3>
-    
-    {applicant.resume_url ? (
-  <a 
-    href={applicant.resume_url}
-    target="_blank" 
-    rel="noopener noreferrer"
-    className="text-blue-300 hover:text-blue-200 inline-block"
-  >
-    <div className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md transition-colors duration-300">
-      Download Resume
-    </div>
-  </a>
-) : (
-  <p className="text-white text-opacity-70">No resume submitted</p>
-)}
-    {applicant.video_url && (
-      <div>
-        <h4 className="text-white font-semibold mb-2">Video Introduction</h4>
-        <div className="bg-black bg-opacity-50 rounded-lg overflow-hidden">
-          <video 
-            controls 
-            className="w-full"
-            onError={(e) => console.error('Video error:', e)}
-          >
-            <source 
-              src={applicant.video_url} 
-              type="video/mp4" 
-            />
-            Your browser does not support the video tag.
-          </video>
+            <div className="bg-white bg-opacity-10 p-4 rounded-lg">
+              <h3 className="text-lg font-medium text-white mb-4">Professional Information</h3>
+              <div className="space-y-4">
+                <div>
+                  <p className="text-sm font-medium text-gray-300">Qualification</p>
+                  <p className="mt-1 text-sm text-white">{applicant.qualification || 'Not specified'}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-300">Experience Level</p>
+                  <p className="mt-1 text-sm text-white">{applicant.experienceLevel || 'Not specified'}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-300">Education Level</p>
+                  <p className="mt-1 text-sm text-white">{applicant.educational_level || 'Not specified'}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-300">Application Date</p>
+                  <p className="mt-1 text-sm text-white">
+                    {new Date(applicant.application_date).toLocaleDateString()}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Application Materials */}
+          <div className="mt-6">
+            <h3 className="text-lg font-medium text-white mb-4">Application Materials</h3>
+            
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+              {/* Resume Section */}
+              <div className="bg-white bg-opacity-10 p-4 rounded-lg">
+                <div className="flex items-center mb-3">
+                  <FontAwesomeIcon icon={faFilePdf} className="text-red-400 mr-2" />
+                  <h4 className="font-medium text-white">Resume</h4>
+                </div>
+                
+                {applicant.resume_url ? (
+                  <div className="space-y-3">
+                    <iframe
+                      src={applicant.resume_url}
+                      className="w-full h-96 border border-gray-600 rounded bg-white"
+                      title="Applicant Resume"
+                    />
+                    <a
+                      href={applicant.resume_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                    >
+                      Download Resume
+                    </a>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-300">No resume submitted</p>
+                )}
+              </div>
+
+              {/* Video Section */}
+              <div className="bg-white bg-opacity-10 p-4 rounded-lg">
+                <div className="flex items-center mb-3">
+                  <FontAwesomeIcon icon={faVideo} className="text-blue-400 mr-2" />
+                  <h4 className="font-medium text-white">Video Introduction</h4>
+                </div>
+                
+                {applicant.video_url ? (
+                  <div className="space-y-3">
+                    <video
+                      controls
+                      className="w-full rounded border border-gray-600"
+                      src={applicant.video_url}
+                    />
+                    <a
+                      href={applicant.video_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                    >
+                      Open Video in New Tab
+                    </a>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-300">No video submitted</p>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
-    )}
 
-    {!applicant.resume_url && !applicant.video_url && (
-      <p className="text-white text-opacity-70">No application materials submitted</p>
-    )}
-  </div>
-</div>
-          </div>
-
-          <div className="mt-6 flex flex-wrap justify-center gap-4">
-            <button 
-              onClick={handleAcceptApplication}
-              className={`bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition-colors duration-300 ${
-                applicant.status === 'accepted' ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-              disabled={applicant.status === 'accepted'}
-            >
-              Accept Application
-            </button>
-            <button 
-              onClick={handleRejectApplication}
-              className={`bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 transition-colors duration-300 ${
-                applicant.status === 'denied' ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-              disabled={applicant.status === 'denied'}
-            >
-              Reject Application
-            </button>
-            <button 
-              onClick={handleContactApplicant} 
-              className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
-            >
-              Contact Applicant
-            </button>
-          </div>
+        {/* Back Button - Centered */}
+        <div className="mb-6 w-full max-w-4xl">
+          <button
+            onClick={() => navigate(-1)}
+            className="bg-blue-600 mt-5 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center transition-all duration-300 w-full justify-center"
+          >
+            Back to Applicants
+          </button>
         </div>
       </div>
     </div>

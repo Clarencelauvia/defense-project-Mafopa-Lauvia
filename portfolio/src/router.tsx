@@ -33,6 +33,10 @@ import Chatbox from './components/ChatBox';
 import AdminDashboard from './components/admin_dashboard';
 import MessagesList from './components/MessagesList';
 import JobseekerChatBox from './components/JobSeekerChatBox';
+// import LoginFrequencyGraph from './components/LoginFrequencyGraph';
+import AdminLogin from './components/Admin_login';
+import AdminForgotPassword from './components/AdminForgotPassword';
+import AdminResetPassword from './components/AdminResetPassword'
 
 
 
@@ -74,10 +78,14 @@ function Router() {
           <Route path="/chat/:receiverId" element={<Chatbox />} />
           <Route path="/messages" element={<Chatbox />} />
           <Route path='/admin_dashboard' element={<AdminDashboard/>} />
+          <Route path="/admin/forgot-password" element={<AdminForgotPassword />} />
+<Route path="/admin/reset-password" element={<AdminResetPassword />} />
         
 <Route path="/message-list" element={<MessagesList />} />
 <Route path="/chat/:receiverId" element={<Chatbox />} />
 <Route path="/jobseeker-chat/:receiverId" element={<JobseekerChatBox />} />
+{/* <Route path='/LoginFrequency' element={<LoginFrequencyGraph/>} /> */}
+<Route path="/admin/login" element={<AdminLogin />} />
         </Routes>
        
         

@@ -18,6 +18,7 @@ interface Job {
   job_duration: string;
   location: string;
   created_at: string;
+  application_status?: string;
 }
 
 const AllSavedJobsPage: React.FC = () => {
@@ -27,34 +28,68 @@ const AllSavedJobsPage: React.FC = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const fetchSavedJobs = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        if (!token) {
-          throw new Error('No token found');
-        }
 
-        const response = await axios.get('http://localhost:8000/api/saved-jobs', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+const fetchSavedJobs = async () => {
+  try {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      throw new Error('No token found');
+    }
 
-        if (Array.isArray(response.data)) {
-          setSavedJobs(response.data);
-        } else {
-          setError('Invalid response format. Expected an array.');
+    // First fetch saved jobs
+    const savedResponse = await axios.get('http://localhost:8000/api/saved-jobs', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!Array.isArray(savedResponse.data)) {
+      throw new Error('Invalid saved jobs response format');
+    }
+
+    // Then fetch application status for each job
+    const jobsWithStatus = await Promise.all(
+      savedResponse.data.map(async (job: Job) => {
+        try {
+          const statusResponse = await axios.get(
+            `http://localhost:8000/api/jobs/${job.id}/application-status`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          
+          // Handle different response formats
+          let status = 'not_applied';
+          if (statusResponse.data && statusResponse.data.status) {
+            status = statusResponse.data.status;
+          } else if (statusResponse.data && typeof statusResponse.data === 'string') {
+            status = statusResponse.data;
+          }
+          
+          return {
+            ...job,
+            application_status: status
+          };
+        } catch (error) {
+          console.error(`Error fetching status for job ${job.id}:`, error);
+          // If there's an error checking status, assume not applied
+          return {
+            ...job,
+            application_status: 'not_applied'
+          };
         }
-      } catch (error) {
-        setError('Failed to fetch saved jobs. Please try again later.');
-        console.error('Error fetching saved jobs:', error);
-        Swal.fire({
-          icon: 'error',
-          title: 'Error',
-          text: 'Failed to fetch saved jobs.',
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
+      })
+    );
+
+    setSavedJobs(jobsWithStatus);
+  } catch (error) {
+    setError('Failed to fetch saved jobs. Please try again later.');
+    console.error('Error fetching saved jobs:', error);
+    Swal.fire({
+      icon: 'error',
+      title: 'Error',
+      text: 'Failed to fetch saved jobs.',
+    });
+  } finally {
+    setLoading(false);
+  }
+};
 
     fetchSavedJobs();
   }, []);
@@ -64,7 +99,7 @@ const AllSavedJobsPage: React.FC = () => {
   };
 
   if (loading) {
-    return <div className=" h-screen">Loading...</div>;
+    return <div className="h-screen">Loading...</div>;
   }
 
   if (error) {
@@ -110,6 +145,20 @@ const AllSavedJobsPage: React.FC = () => {
               <p className="text-sm text-white mb-2">{job.company_description}</p>
               <p className="text-sm text-white mb-2">Location: {job.location}</p>
               <p className="text-sm text-white mb-2">Job Type: {job.job_type}</p>
+              {job.application_status && (
+  <p className="text-sm text-white mb-2">
+    Status: <span className={`font-semibold ${
+      job.application_status === 'accepted' ? 'text-green-400' :
+      job.application_status === 'rejected' ? 'text-red-400' :
+      job.application_status === 'pending' ? 'text-yellow-400' :
+      'text-gray-400'
+    }`}>
+      {job.application_status === 'not_applied' ? 'Not Applied' : 
+       job.application_status === 'pending' ? 'Pending ' :
+       job.application_status}
+    </span>
+  </p>
+)}
               <p className="text-sm text-white mb-4">Posted on: {new Date(job.created_at).toLocaleDateString()}</p>
               <Link to={`/job/${job.id}`}>
                 <button className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300">

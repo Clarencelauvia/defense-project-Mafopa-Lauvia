@@ -9,6 +9,7 @@ use App\Http\Controllers\JobController;
 use App\Http\Controllers\EmployerJobController;
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\TwilioController;
+use App\Http\Controllers\AdminController;
 
 
 
@@ -42,17 +43,21 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/employer/login-dates', [EntreInfController::class, 'getLoginDates']);
 });
 
+Route::get('/applicants/{id}/check-files', [AutheController::class, 'checkFiles']);
+
+Route::middleware('auth:sanctum')->get('/jobs/recommended', [JobController::class, 'getRecommendedJobs']);
+
 Route::middleware(['cors'])->group(function () {
     Route::post('/logine', [EntreInfController::class, 'logine']);
     Route::middleware('auth:sanctum')->get('/user', [EntreInfController::class, 'getEmployer']);
 });
 
-// In routes/web.php or routes/api.php
+
 Route::get('/employer/manage-jobs', [EmployerJobController::class, 'manageJobs'])->middleware('auth:sanctum');
-// In routes/web.php or routes/api.php
+
 Route::put('/employer/jobs/{id}', [EmployerJobController::class, 'updateJob'])->middleware('auth:sanctum');
 Route::delete('/employer/jobs/{id}', [EmployerJobController::class, 'deleteJob'])->middleware('auth:sanctum');
-// In routes/api.php
+
 Route::get('/employer/jobs/{jobId}', [EmployerJobController::class, 'getJob'])->middleware('auth:sanctum');
 // Route to fetch the informations for the user profile
 Route::get('/employeePage',[AutheController::class, 'indexe'] );
@@ -113,7 +118,15 @@ Route::middleware('auth:sanctum')->post('/jobs/{id}/save', [JobController::class
 
 // route for unsaving jobs 
 Route::delete('/jobs/{job}/unsave', [JobController::class, 'unsave'])->middleware('auth:sanctum');
+Route::delete('/saved-jobs/{job}', [JobController::class, 'unsave'])->middleware('auth:sanctum');
 
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/jobs/{job}/save', [JobController::class, 'saveJob']);
+    Route::delete('/jobs/{job}/unsave', [JobController::class, 'unsave']);
+    Route::get('/saved-jobs', [JobController::class, 'getSavedJobs']);
+});
+Route::get('/jobs/{job}/application-status', [JobController::class, 'getApplicationStatus'])
+    ->middleware('auth:sanctum');
 // route to update th user profile 
 Route::put('/user/update', [AutheController::class, 'updateProfile'])->middleware('auth:sanctum');
 Route::middleware('auth:sanctum')->put('/user/update', [AutheController::class, 'updateProfile']);
@@ -131,6 +144,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/jobs/{JobId}/apply', [AutheController::class, 'applyForJob']);
 });
 Route::post('/jobs/{id}/apply', [AutheController::class, 'applyForJob']);
+
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/apply-jobs', [AutheController::class, 'getAppliedJobs']); // Fetch applied jobs
@@ -164,7 +178,7 @@ Route::prefix('chat')->middleware('auth:sanctum')->group(function () {
 
     Route::delete('/messages/{messageId}', [ChatController::class, 'deleteMessage']);
 });
-// routes/api.php
+
 Route::get('/users/{userId}', [EntreInfController::class, 'getUser']);
 // Route::delete('/messages/{messageId}', [ChatController::class, 'deleteMessage']);
 
@@ -182,7 +196,7 @@ Route::get('/messages/unread-count/{userId}', [ChatController::class, 'getUnread
     ->middleware('auth:sanctum');
     Route::get('/messages/contacts', [ChatController::class, 'getContactsWithUnreadCounts'])->middleware('auth:sanctum');
 
-// Add this route
+
 Route::get('/employer/applicant/{id}', [EntreInfController::class, 'getApplicantById'])
     ->middleware('auth:sanctum');
 
@@ -199,15 +213,43 @@ Route::get('/applicants/{id}', [AutheController::class, 'getApplicant'])
         // Resume submission
         Route::post('/jobs/{job}/apply-resume', [AutheController::class, 'applyResume']);
         
-        // Complete application endpoint
+        // Application endpoint
         Route::post('/applications/{application}/complete', [AutheController::class, 'completeApplication']);
     });
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('/jobs/{jobId}/apply', [AutheController::class, 'applyForJob']);
     });
+    Route::put('/employer/applicants/{applicantId}/status', [EntreInfController::class, 'updateApplicantStatus'])
+    ->middleware('auth:sanctum');
     Route::middleware('auth:sanctum')->post('/jobs/{jobId}/upload-chunk', [AutheController::class, 'uploadChunk']);
     
     Route::options('/{any}', function () {
         return response()->json();
     })->where('any', '.*');
+
+    Route::post('/admin/login', [AdminController::class, 'login']);
+Route::middleware('auth:sanctum')->post('/admin/logout', [AdminController::class, 'logout']);
+Route::post('/admin/forgot-password', [AdminController::class, 'sendResetLinkEmail']);
+Route::post('/admin/reset-password', [AdminController::class, 'resetPassword']);
+
+
+Route::get('/api/upload-test', function() {
+    \Log::info('Upload test started');
+    
+    $start = microtime(true);
+    $tempFile = tempnam(sys_get_temp_dir(), 'test');
+    file_put_contents($tempFile, random_bytes(10 * 1024 * 1024)); // 10MB file
+    
+    $result = [
+        'write_speed' => round(10 / (microtime(true) - $start), 2) . ' MB/s',
+        'timestamp' => now()->toDateTimeString()
+    ];
+    
+    unlink($tempFile);
+    
+    \Log::info('Upload test completed', $result);
+    return response()->json($result);
+});
+
+Route::middleware('auth:sanctum')->post('/jobs/{jobId}/finalize-application', [AutheController::class, 'finalizeApplication']);
