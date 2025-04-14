@@ -10,9 +10,13 @@ use App\Http\Controllers\EmployerJobController;
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\TwilioController;
 use App\Http\Controllers\AdminController;
-
-
-
+use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\NotificationeController;
+use App\Http\Controllers\AlertController;
+use App\Models\Applicants;
+use App\Events\ApplicantStatusUpdated;
+use App\Http\Controllers\ApplicantStatusController;
+use Illuminate\Support\Facades\Auth;
 
 /*
 |--------------------------------------------------------------------------
@@ -32,6 +36,11 @@ Route::post('/login', [AutheController::class, 'login']);
 Route::get('/login-dates', [AutheController::class, 'getLoginDates'])->middleware('auth:sanctum');
 
 Route::post('/jobPost', [jobpostingController::class, 'jobPost'] );
+// Route::middleware(['auth:sanctum', 'employer'])->group(function () {
+//     Route::post('/jobPost', [jobpostingController::class, 'jobPost']);
+// });
+
+Route::post('/jobPost', [jobpostingController::class, 'jobPost'])->middleware('auth:entre_inf,sanctum');
 Route::post('/entrepreneur', [EntreInfController::class, 'entrepreneur'] );
 Route::post('/logine', [EntreInfController::class, 'logine'] )->middleware('cors');
 // In routes/api.php
@@ -81,7 +90,7 @@ Route::post('/jobs', [JobPostingController::class, 'jobPost'])->middleware('auth
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/jobPost', [JobPostingController::class, 'jobPost']);
 });
-
+Route::middleware('auth:sanctum')->post('/jobs', [JobPostingController::class, 'jobPost']);
 
 // Forgot Password Route
 
@@ -197,7 +206,7 @@ Route::get('/messages/unread-count/{userId}', [ChatController::class, 'getUnread
     Route::get('/messages/contacts', [ChatController::class, 'getContactsWithUnreadCounts'])->middleware('auth:sanctum');
 
 
-Route::get('/employer/applicant/{id}', [EntreInfController::class, 'getApplicantById'])
+    Route::get('/employer/applicant/{id}', [EntreInfController::class, 'getApplicantById'])
     ->middleware('auth:sanctum');
 
     Route::put('/applicants/{applicantId}/status', [AutheController::class, 'updateApplicationStatus'])
@@ -253,3 +262,60 @@ Route::get('/api/upload-test', function() {
 });
 
 Route::middleware('auth:sanctum')->post('/jobs/{jobId}/finalize-application', [AutheController::class, 'finalizeApplication']);
+Route::get('/notifications', [NotificationController::class, 'index']);
+Route::put('/notifications/{id}/read', [NotificationController::class, 'markAsRead']);
+
+// In api.php
+// Route::middleware('auth:sanctum')->group(function () {
+//     Route::get('/notifications', [NotificationeController::class, 'index']);
+//     Route::put('/notifications/{id}/read', [NotificationeController::class, 'markAsRead']);
+//     Route::get('/notifications/unread-count', [NotificationeController::class, 'unreadCount']);
+// });
+
+// for the notification when posting jobs 
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/alerts', [AlertController::class, 'index']);
+    Route::put('/alerts/{id}/read', [AlertController::class, 'markAsRead']);
+    Route::get('/alerts/unread-count', [AlertController::class, 'unreadCount']);
+    Route::put('/employer/applicants/{id}/status', 
+    [ApplicantStatusController::class, 'update']);
+});
+
+Route::put('/employer/applicants/{id}/status', function (Request $request, $id) {
+    $request->validate([
+        'status' => 'required|in:accepted,denied,pending,reviewed'
+    ]);
+
+    $applicant = Applicants::findOrFail($id);
+    $oldStatus = $applicant->status;
+    $applicant->status = $request->status;
+    $applicant->save();
+
+    // Broadcast the status update
+    event(new ApplicantStatusUpdated($applicant, $request->status));
+
+    return response()->json([
+        'message' => 'Status updated successfully',
+        'data' => $applicant
+    ]);
+})->middleware('auth:sanctum');
+
+
+
+
+Route::post('/pusher/auth', function (Request $request) {
+    if (!Auth::check()) {
+        return response()->json(['message' => 'Unauthorized'], 403);
+    }
+
+    $user = Auth::user();
+    $pusher = new Pusher\Pusher(
+        config('broadcasting.connections.pusher.key'),
+        config('broadcasting.connections.pusher.secret'),
+        config('broadcasting.connections.pusher.app_id'),
+        config('broadcasting.connections.pusher.options')
+    );
+
+    return $pusher->socket_auth($request->channel_name, $request->socket_id);
+})->middleware('auth:sanctum');
+

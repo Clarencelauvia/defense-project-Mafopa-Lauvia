@@ -10,6 +10,9 @@ interface JobApplication {
   application_date: string;
   status: string;
   organisation_name: string;
+  qualification:string;
+  location:string;
+
 }
 
 const Applications: React.FC = () => {
@@ -158,6 +161,12 @@ const Applications: React.FC = () => {
                 </div>
                 {application.organisation_name && (
                   <p className="text-sm text-white mt-2">Company: {application.organisation_name}</p>
+                )}
+                  {application.qualification && (
+                  <p className="text-sm text-white mt-2">Qualification: {application.qualification}</p>
+                )}
+                  {application.location && (
+                  <p className="text-sm text-white mt-2">Location: {application.location}</p>
                 )}
                 <p className="text-sm text-white mt-2">
                   Applied on: {new Date(application.application_date).toLocaleDateString()}

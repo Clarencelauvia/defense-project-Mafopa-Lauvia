@@ -47,6 +47,12 @@ const ApplicantProfilePage: React.FC = () => {
       once: true,
     });
   }, []);
+  useEffect(() => {
+    console.log('Applicant data:', {
+      video_url: applicant?.video_url,
+      resume_url: applicant?.resume_url
+    });
+  }, [applicant]);
 
   const fetchApplicant = useCallback(async () => {
     try {
@@ -56,19 +62,11 @@ const ApplicantProfilePage: React.FC = () => {
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      setApplicant({
-        ...response.data,
-        video_url: response.data.video_url ? 
-          response.data.video_url.startsWith('http') ? 
-            response.data.video_url : 
-            `${window.location.origin}${response.data.video_url}` : 
-          null,
-        resume_url: response.data.resume_url ? 
-          response.data.resume_url.startsWith('http') ? 
-            response.data.resume_url : 
-            `${window.location.origin}${response.data.resume_url}` : 
-          null
-      });
+      if (!response.data.first_name || !response.data.last_name) {
+        throw new Error('Applicant data is missing required name fields');
+      }
+
+      setApplicant(response.data );
     } catch (err) {
       setError('Failed to fetch applicant details');
       console.error('Error fetching applicant:', err);
@@ -83,46 +81,65 @@ const ApplicantProfilePage: React.FC = () => {
 
   const updateApplicationStatus = useCallback(async (status: 'accepted' | 'denied') => {
     if (!applicant?.id) return;
-
+  
     try {
       setProcessing(true);
       const token = localStorage.getItem('token');
       
-      await axios.put(
+      console.log('Attempting to update status for applicant:', applicant.id, 'to:', status);
+      
+      const response = await axios.put(
         `http://localhost:8000/api/employer/applicants/${applicant.id}/status`,
         { status },
         { 
           headers: { 
             Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
           } 
         }
       );
-
+  
+      console.log('Update successful:', response.data);
+  
       const successMessage = status === 'accepted' 
         ? 'Application Accepted! The applicant has been notified.' 
         : 'Application Rejected. The applicant has been notified.';
-
+  
       await Swal.fire({
         title: status === 'accepted' ? 'Success!' : 'Rejected',
         text: successMessage,
         icon: status === 'accepted' ? 'success' : 'info',
         confirmButtonColor: '#3085d6'
       });
-
-      setApplicant(prev => prev ? { ...prev, status } : null);
+  
+      // Refresh applicant data
+      await fetchApplicant();
     } catch (err) {
-      console.error('Status update error:', err);
-      Swal.fire({
+      console.error('Full error object:', err);
+      
+      let errorMessage = 'Failed to update application status';
+      let errorDetails = '';
+      
+      if (axios.isAxiosError(err)) {
+        console.error('API Error Response:', err.response?.data);
+        errorMessage = err.response?.data?.message || errorMessage;
+        errorDetails = err.response?.data?.error || '';
+      }
+  
+      await Swal.fire({
         title: 'Error!',
-        text: 'Failed to update application status',
+        html: `<div>
+          <p>${errorMessage}</p>
+          ${errorDetails ? `<p class="text-sm mt-2">${errorDetails}</p>` : ''}
+        </div>`,
         icon: 'error',
         confirmButtonColor: '#d33'
       });
     } finally {
       setProcessing(false);
     }
-  }, [applicant]);
+  }, [applicant?.id, fetchApplicant]);
 
   const handleContactApplicant = useCallback(async () => {
     if (!applicant?.contact_number) {
@@ -224,16 +241,14 @@ const ApplicantProfilePage: React.FC = () => {
           {/* Applicant Header */}
           <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
             <div className="flex items-center">
-              {applicant.image ? (
-             
-                <img src={`http://localhost:8000${applicant.image}`} alt="Profile" 
-                 className="h-16 w-16 rounded-full object-cover" />
-                
-              ) : (
-                <div className="h-16 w-16 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 text-xl font-bold">
-                  {applicant.first_name.charAt(0)}{applicant.last_name.charAt(0)}
-                </div>
-              )}
+{applicant.image ? (
+  <img src={`http://localhost:8000${applicant.image}`} alt="Profile" 
+   className="h-16 w-16 rounded-full object-cover" />
+) : (
+  <div className="h-16 w-16 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 text-xl font-bold">
+    {applicant.first_name?.charAt(0) || '?'}{applicant.last_name?.charAt(0) || '?'}
+  </div>
+)}
               <div className="ml-4">
                 <h2 className="text-xl font-semibold text-white">
                   {applicant.first_name} {applicant.last_name}
@@ -343,61 +358,63 @@ const ApplicantProfilePage: React.FC = () => {
             <h3 className="text-lg font-medium text-white mb-4">Application Materials</h3>
             
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-              {/* Resume Section */}
-              <div className="bg-white bg-opacity-10 p-4 rounded-lg">
-                <div className="flex items-center mb-3">
-                  <FontAwesomeIcon icon={faFilePdf} className="text-red-400 mr-2" />
-                  <h4 className="font-medium text-white">Resume</h4>
-                </div>
-                
-                {applicant.resume_url ? (
-                  <div className="space-y-3">
-                    <iframe
-                      src={applicant.resume_url}
-                      className="w-full h-96 border border-gray-600 rounded bg-white"
-                      title="Applicant Resume"
-                    />
-                    <a
-                      href={applicant.resume_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                    >
-                      Download Resume
-                    </a>
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-300">No resume submitted</p>
-                )}
-              </div>
+           
 
-              {/* Video Section */}
-              <div className="bg-white bg-opacity-10 p-4 rounded-lg">
-                <div className="flex items-center mb-3">
-                  <FontAwesomeIcon icon={faVideo} className="text-blue-400 mr-2" />
-                  <h4 className="font-medium text-white">Video Introduction</h4>
-                </div>
-                
-                {applicant.video_url ? (
-                  <div className="space-y-3">
-                    <video
-                      controls
-                      className="w-full rounded border border-gray-600"
-                      src={applicant.video_url}
-                    />
-                    <a
-                      href={applicant.video_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                    >
-                      Open Video in New Tab
-                    </a>
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-300">No video submitted</p>
-                )}
-              </div>
+{/* Resume Section */}
+<div className="bg-white bg-opacity-10 p-4 rounded-lg">
+  <div className="flex items-center mb-3">
+    <FontAwesomeIcon icon={faFilePdf} className="text-red-400 mr-2" />
+    <h4 className="font-medium text-white">Resume</h4>
+  </div>
+  
+  {applicant.resume_url ? (
+    <div className="space-y-3">
+      <iframe
+        src={applicant.resume_url.startsWith('http') ? applicant.resume_url : `http://localhost:8000${applicant.resume_url}`}
+        className="w-full h-96 border border-gray-600 rounded bg-white"
+        title="Applicant Resume"
+      />
+      <a
+        href={applicant.resume_url.startsWith('http') ? applicant.resume_url : `http://localhost:8000${applicant.resume_url}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+      >
+        Download Resume
+      </a>
+    </div>
+  ) : (
+    <p className="text-sm text-gray-300">No resume submitted</p>
+  )}
+</div>
+
+{/* Video Section */}
+<div className="bg-white bg-opacity-10 p-4 rounded-lg">
+  <div className="flex items-center mb-3">
+    <FontAwesomeIcon icon={faVideo} className="text-blue-400 mr-2" />
+    <h4 className="font-medium text-white">Video Introduction</h4>
+  </div>
+  
+  {applicant.video_url ? (
+    <div className="space-y-3">
+      <video
+        controls
+        className="w-full rounded border border-gray-600"
+        src={applicant.video_url.startsWith('http') ? applicant.video_url : `http://localhost:8000${applicant.video_url}`}
+      />
+      <a
+        href={applicant.video_url.startsWith('http') ? applicant.video_url : `http://localhost:8000${applicant.video_url}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+      >
+        Open Video in New Tab
+      </a>
+    </div>
+  ) : (
+    <p className="text-sm text-gray-300">No video submitted</p>
+  )}
+</div>
             </div>
           </div>
         </div>

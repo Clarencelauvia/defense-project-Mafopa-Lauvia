@@ -22,6 +22,8 @@ class JobPosting extends Model
         'job_type',
         'job_duration',
         'location',
+        'qualification',
+        
        
 
     ];

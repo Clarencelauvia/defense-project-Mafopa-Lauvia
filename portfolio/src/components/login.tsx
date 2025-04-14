@@ -89,7 +89,7 @@ function Login() {
               <p className="text-blue-100 mb-8 text-lg">
                 Access administrative features and manage the platform.
               </p>
-        <Link to={""}>      <button
+        <Link to={"/admin_login"}>      <button
                 className="w-full py-3 px-6 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-lg transition-all duration-300 transform hover:-translate-y-1"
               >
                 Admin Login

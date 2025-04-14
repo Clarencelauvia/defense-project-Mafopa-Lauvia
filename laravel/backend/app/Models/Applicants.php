@@ -4,10 +4,13 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Notifications\Notifiable;  
+
 
 class Applicants extends Model
 {
     use HasFactory;
+    use Notifiable;
 
 
     protected $table = '_applicants';
@@ -33,6 +36,11 @@ class Applicants extends Model
     {
         return $this->belongsTo(JobPosting::class);
     }
+
+    public function job()
+{
+    return $this->belongsTo(JobPosting::class, 'job_id');
+}
 
     
 }

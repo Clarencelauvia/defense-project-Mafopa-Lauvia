@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
@@ -8,7 +8,6 @@ import {
   faSignOutAlt, faUserFriends, faEnvelope
 } from '@fortawesome/free-solid-svg-icons';
 
-// Types
 interface User {
   id: string;
   name: string;
@@ -35,15 +34,58 @@ interface Metric {
   icon: React.ReactNode;
 }
 
+interface Notification {
+  id: number;
+  type: string;
+  message: string;
+  time: string;
+  read: boolean;
+}
+
 function AdminDashboard() {
-  // State
   const [activeTab, setActiveTab] = useState('overview');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [selectedUserType, setSelectedUserType] = useState('all');
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [metricsData, setMetricsData] = useState<Metric[]>([]);
+const [loadingMetrics, setLoadingMetrics] = useState(true);
 
-  // Mock data
+  // Fetch notifications from API
+ // Fetch notifications from API
+useEffect(() => {
+  const fetchNotifications = async () => {
+      try {
+          const response = await fetch('http://localhost:8000/api/notifications');
+          const data = await response.json();
+          setNotifications(data.notifications || []); // Handle case where notifications is undefined
+      } catch (error) {
+          console.error('Error fetching notifications:', error);
+      }
+  };
+  
+  fetchNotifications();
+  const interval = setInterval(fetchNotifications, 60000); // Refresh every minute
+  
+  return () => clearInterval(interval);
+}, []);
+
+  const handleNotificationClick = async (id: number) => {
+    try {
+      await fetch(`http://localhost:8000/api/notifications/${id}/read`, {
+        method: 'PUT'
+      });
+      
+      setNotifications(notifications.map(notification => 
+        notification.id === id ? { ...notification, read: true } : notification
+      ));
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+    }
+  };
+
   const metrics: Metric[] = [
     { 
       label: 'Active Users', 
@@ -70,6 +112,67 @@ function AdminDashboard() {
       icon: <FontAwesomeIcon icon={faCheckCircle} className="w-6 h-6 text-emerald-500" />
     }
   ];
+
+
+useEffect(() => {
+  const fetchMetrics = async () => {
+    try {
+      const response = await fetch('http://localhost:8000/api/admin/metrics');
+      const data = await response.json();
+      setMetricsData([
+        { 
+          label: 'Active Users', 
+          value: data.activeUsers,
+          change: data.userGrowth,
+          icon: <FontAwesomeIcon icon={faUsers} className="w-6 h-6 text-blue-500" />
+        },
+        { 
+          label: 'Active Jobs', 
+          value: data.activeJobs,
+          change: data.jobGrowth,
+          icon: <FontAwesomeIcon icon={faBriefcase} className="w-6 h-6 text-green-500" />
+        },
+        { 
+          label: 'Revenue', 
+          value: data.revenue,
+          change: data.revenueChange,
+          icon: <FontAwesomeIcon icon={faDollarSign} className="w-6 h-6 text-purple-500" />
+        },
+        { 
+          label: 'Success Rate', 
+          value: data.successRate,
+          change: data.successRateChange,
+          icon: <FontAwesomeIcon icon={faCheckCircle} className="w-6 h-6 text-emerald-500" />
+        }
+      ]);
+    } catch (error) {
+      console.error('Error fetching metrics:', error);
+    } finally {
+      setLoadingMetrics(false);
+    }
+  };
+  
+  fetchMetrics();
+}, []);
+
+const [activities, setActivities] = useState([]);
+const [loadingActivities, setLoadingActivities] = useState(true);
+
+useEffect(() => {
+  const fetchActivities = async () => {
+    try {
+      const response = await fetch('http://localhost:8000/api/admin/activities');
+      const data = await response.json();
+      setActivities(data);
+    } catch (error) {
+      console.error('Error fetching activities:', error);
+    } finally {
+      setLoadingActivities(false);
+    }
+  };
+  
+  fetchActivities();
+}, []);
 
   const users: User[] = [
     {
@@ -128,14 +231,12 @@ function AdminDashboard() {
     }
   ];
 
-  // Toggle dark mode
   const toggleTheme = () => {
     setIsDarkMode(!isDarkMode);
     document.documentElement.classList.toggle('dark', !isDarkMode);
   };
 
   const handleLogout = () => {
-    // Clear admin token from storage
     localStorage.removeItem('adminToken');
     window.location.href = '/admin_login';
   };
@@ -155,10 +256,42 @@ function AdminDashboard() {
 
         <div className="flex items-center space-x-4">
           <div className="relative">
-            <FontAwesomeIcon icon={faBell} className="w-6 h-6 text-white cursor-pointer" />
-            <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-white text-xs flex items-center justify-center">
-              3
-            </span>
+            <FontAwesomeIcon 
+              icon={faBell} 
+              className="w-6 h-6 text-white cursor-pointer" 
+              onClick={() => setShowNotifications(!showNotifications)}
+            />
+            {notifications.filter(n => !n.read).length > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-white text-xs flex items-center justify-center">
+                {notifications.filter(n => !n.read).length}
+              </span>
+            )}
+            {showNotifications && (
+              <div className="absolute right-0 mt-2 w-64 bg-white bg-opacity-90 backdrop-blur-md rounded-lg shadow-lg z-50">
+                <div className="p-2 font-semibold text-gray-700">Notifications</div>
+                {notifications.length === 0 ? (
+                  <div className="p-4 text-sm text-gray-500">No new notifications</div>
+                ) : (
+                  <div className="max-h-60 overflow-y-auto">
+                    {notifications.map(notification => (
+                      <div 
+                        key={notification.id} 
+                        className={`p-3 border-b border-gray-200 cursor-pointer hover:bg-gray-100 ${!notification.read ? 'bg-blue-50' : ''}`}
+                        onClick={() => handleNotificationClick(notification.id)}
+                      >
+                        <div className="flex items-start">
+                          <div className={`w-2 h-2 rounded-full mt-1 mr-2 ${!notification.read ? 'bg-blue-500' : 'bg-transparent'}`} />
+                          <div>
+                            <p className="text-sm font-medium text-gray-800">{notification.message}</p>
+                            <p className="text-xs text-gray-500">{notification.time}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           <button
             onClick={toggleTheme}
@@ -178,7 +311,7 @@ function AdminDashboard() {
                 AD
               </div>
               <p className="text-xl font-semibold mb-1 mt-4">Admin User</p>
-              <p className="text-sm text-blue-200 mb-4">admin@example.com</p>
+              <p className="text-sm text-blue-200 mb-4">lauviamafopa697@gmail.com</p>
               <Link
                 to="/admin/settings"
                 className="w-full py-2 bg-blue-500 bg-opacity-50 hover:bg-opacity-70 text-white text-center rounded-lg transition-all duration-300"
@@ -289,18 +422,30 @@ function AdminDashboard() {
               <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-6">
                 <div className="flex items-center justify-between mb-6">
                   <h2 className="text-lg font-semibold text-white">Recent Activity</h2>
-                  <button className="text-sm bg-blue-800 text-white hover:text-blue-200">View All</button>
+                  <button 
+                    className="text-sm bg-blue-800 text-white hover:text-blue-200"
+                    onClick={() => setActiveTab('users')}
+                  >
+                    View All
+                  </button>
                 </div>
                 
                 <div className="space-y-4">
-                  {[1, 2, 3].map((_, index) => (
-                    <div key={index} className="flex items-center gap-4 p-4 bg-white bg-opacity-5 rounded-lg">
+                  {notifications.slice(0, 3).map((notification, index) => (
+                    <div 
+                      key={index} 
+                      className="flex items-center gap-4 p-4 bg-white bg-opacity-5 rounded-lg hover:bg-white hover:bg-opacity-10 cursor-pointer"
+                      onClick={() => handleNotificationClick(notification.id)}
+                    >
                       <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                        <FontAwesomeIcon icon={faUsers} className="w-5 h-5 text-blue-600" />
+                        <FontAwesomeIcon 
+                          icon={notification.type === 'user' ? faUserFriends : faBriefcase} 
+                          className="w-5 h-5 text-blue-600" 
+                        />
                       </div>
                       <div>
-                        <p className="text-sm font-medium text-white">New user registration</p>
-                        <p className="text-xs text-blue-300">2 minutes ago</p>
+                        <p className="text-sm font-medium text-white">{notification.message}</p>
+                        <p className="text-xs text-blue-300">{notification.time}</p>
                       </div>
                     </div>
                   ))}

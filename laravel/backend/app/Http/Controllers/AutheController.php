@@ -20,6 +20,7 @@ use App\Events\NewApplicationEvent;
 use Illuminate\Support\Facades\Log;
 use App\Models\LoginDate;
 use Dompdf\Dompdf;
+use Illuminate\Support\Facades\Mail;
 
 
 
@@ -75,6 +76,13 @@ class AutheController extends Controller
             'message' => 'User registered successfully',
             'user' => $user,
         ], 201);
+
+           \App\Models\Notication::create([
+        'type' => 'user',
+        'message' => 'New job seeker registered: ' . $user->first_name . ' ' . $user->last_name
+    ]);
+    
+    return response()->json([/*...*/]);
     }
 
       // Login in an existing user 
@@ -429,87 +437,85 @@ public function getUser(Request $request) {
      ]);
  }
 
- public function applyForJob(Request $request, $jobId)
- {
-     \Log::info('Starting application process', ['jobId' => $jobId]);
+public function applyForJob(Request $request, $jobId)
+{
+    \Log::info('Starting application process', ['jobId' => $jobId]);
+
+    try {
+        // 1. Log validation input
+        \Log::info('Validation Input:', $request->all());
+
+        // 2. Validate files
+        $request->validate([
+            'video' => 'required|file|mimetypes:video/mp4,video/quicktime|max:50000', // 50MB
+            'resume' => 'required|file|mimes:pdf,doc,docx|max:5120', // 5MB
+        ]);
+
+        $user = $request->user();
+
+        // 3. Check for existing application (correct table name)
+        if (Applicants::where('job_id', $jobId)->where('email', $user->email)->exists()) {
+            return response()->json(['message' => 'You have already applied for this job.'], 409);
+        }
+
+        // 4. Handle video upload (log paths)
+        $videoPath = $request->file('video')->store('public/applications/videos');
+        \Log::info('Video Stored At:', ['path' => $videoPath]);
+
+        // 5. Handle resume upload (log paths)
+        $resumeFile = $request->file('resume');
+        $resumePath = $this->processResumeUpload($resumeFile);
+        \Log::info('Resume Stored At:', ['path' => $resumePath]);
+
+        // 6. Create application (ensure table name matches)
+        $application = Applicants::create([
+            'job_id' => $jobId,
+            'first_name' => $user->first_name,
+            'last_name' => $user->last_name,
+            'email' => $user->email,
+            'qualification' => $user->qualification,
+            'experienceLevel' => $user->experience_level,
+            'educational_level' => $user->educational_level,
+            'gender' => $user->gender,
+            'image' => $user->image_url,
+            'contact_number' => $user->contact_number,
+            'address' => $user->address,
+            'code' => $user->code,
+            'application_date' => now()->toDateString(),
+            'status' => 'pending',
+            'video_url' => '/storage/' . str_replace('public/', '', $videoPath), // Fix path
+            'resume_url' => '/storage/' . str_replace('public/', '', $resumePath), // Fix path
+        ]);
+
+        \Log::info('Application Created:', $application->toArray());
+
+        event(new NewApplicationEvent($application));
+
+        return response()->json([
+            'message' => 'Application submitted successfully!',
+            'application' => $application,
+        ], 201);
+    } catch (\Exception $e) {
+        \Log::error('Application error:', ['error' => $e->getMessage()]);
+        return response()->json(['message' => 'Failed to submit application'], 500);
+    }
+}
  
-     try {
-         // Validate request
-         $request->validate([
-             'video' => 'required|file|mimetypes:video/mp4,video/quicktime|max:50000',
-             'resume' => 'required|file|mimes:pdf,doc,docx|max:5120',
-         ]);
  
-         $user = $request->user();
- 
-         // Check for existing application
-         if (Applicants::where('job_id', $jobId)->where('email', $user->email)->exists()) {
-             return response()->json(['message' => 'You have already applied for this job.'], 409);
-         }
- 
-         // Handle video upload
-         $videoPath = $request->file('video')->store('public/applications/videos');
- 
-         // Handle resume upload and conversion
-         $resumeFile = $request->file('resume');
-         $resumePath = $this->processResumeUpload($resumeFile);
- 
-         // Create application with all required fields
-         $application = Applicants::create([
-             'job_id' => $jobId,
-             'first_name' => $user->first_name,
-             'last_name' => $user->last_name,
-             'email' => $user->email,
-             'qualification' => $user->qualification,
-             'experienceLevel' => $user->experience_level,
-             'educational_level' => $user->educational_level,
-             'gender' => $user->gender,
-             'image' => $user->image_url,
-             'contact_number' => $user->contact_number,
-             'address' => $user->address,
-             'code' => $user->code,
-             'application_date' => now()->toDateString(),
-             'status' => 'pending',
-             'video_url' => '/storage/' . str_replace('public/', '', $videoPath),
-             'resume_url' => '/storage/' . str_replace('public/', '', $resumePath),
-         ]);
- 
-         event(new NewApplicationEvent($application));
- 
-         return response()->json([
-             'message' => 'Application submitted successfully!',
-             'application' => $application,
-         ], 201);
-     } catch (\Exception $e) {
-         \Log::error('Application error:', ['error' => $e->getMessage()]);
-         return response()->json(['message' => 'Failed to submit application'], 500);
-     }
- }
- 
- 
- protected function processResumeUpload($resumeFile)
- {
-     try {
-         $extension = $resumeFile->getClientOriginalExtension();
-         $filename = 'resume_' . time() . '.pdf';
-         $path = 'public/applications/resumes/' . $filename;
- 
-         if ($extension !== 'pdf') {
-             // Convert to PDF using Dompdf
-             $pdf = new Dompdf();
-             $pdf->loadHtml(file_get_contents($resumeFile->getRealPath()));
-             $pdf->render();
-             Storage::put($path, $pdf->output());
-         } else {
-             $path = $resumeFile->storeAs('public/applications/resumes', $filename);
-         }
- 
-         return $path;
-     } catch (\Exception $e) {
-         \Log::error('Resume upload failed:', ['error' => $e->getMessage()]);
-         throw new \Exception('Failed to upload or convert resume');
-     }
- }
+protected function processResumeUpload($resumeFile)
+{
+    try {
+        $extension = $resumeFile->getClientOriginalExtension();
+        $filename = 'resume_' . time() . '.pdf'; // Force PDF conversion
+        $path = $resumeFile->storeAs('public/applications/resumes', $filename);
+
+        \Log::info('Resume Saved:', ['path' => $path]);
+        return $path;
+    } catch (\Exception $e) {
+        \Log::error('Resume upload failed:', ['error' => $e->getMessage()]);
+        throw new \Exception('Failed to upload resume');
+    }
+}
  protected function checkFileExists($path)
 {
     $fullPath = storage_path('app/public/' . $path);
@@ -592,10 +598,20 @@ public function uploadChunk(Request $request, $jobId)
             'type' => 'required|in:video,resume'
         ]);
 
-         // Ensure the chunk file exists
-         if (!$request->hasFile('chunk')) {
-            \Log::error('No chunk file found in request');
-            return response()->json(['message' => 'No file uploaded'], 400);
+        // Server-side size validation
+        $file = $request->file('chunk');
+        $type = $request->input('type');
+
+        if ($type === 'video' && $file->getSize() > 50 * 1024 * 1024) {
+            return response()->json([
+                'message' => 'Video file exceeds 50MB limit'
+            ], 413);
+        }
+
+        if ($type === 'resume' && $file->getSize() > 5 * 1024 * 1024) {
+            return response()->json([
+                'message' => 'Resume file exceeds 5MB limit'
+            ], 413);
         }
 
         $type = $request->input('type');
@@ -628,8 +644,11 @@ public function uploadChunk(Request $request, $jobId)
             ]);
             
             $finalFilename = uniqid() . '_' . $request->input('filename');
-            $finalPath = "applications/{$type}s/{$finalFilename}";
-            $finalStoragePath = storage_path("app/public/{$finalPath}");
+            $finalPath = "public/applications/{$type}s/{$finalFilename}";
+            $finalStoragePath = storage_path("app/{$finalPath}");
+            
+            // Ensure directory exists
+            Storage::makeDirectory(dirname($finalPath));
             
             $assemblyStart = microtime(true);
             $finalHandle = fopen($finalStoragePath, 'wb');
@@ -668,7 +687,7 @@ public function uploadChunk(Request $request, $jobId)
 
             return response()->json([
                 'message' => 'File upload complete',
-                'path' => $finalPath,
+                'path' => str_replace('public/', '', $finalPath),
                 'type' => $type
             ]);
         }
@@ -706,6 +725,11 @@ public function finalizeApplication(Request $request, $jobId)
 
         $user = $request->user();
         $job = JobPosting::findOrFail($jobId);
+
+        \Log::info('Finalizing application with files:', [
+            'resume' => $request->resumeFileName,
+            'video' => $request->videoFileName
+        ]);
 
         if (Applicants::where('job_id', $jobId)->where('email', $user->email)->exists()) {
             \Log::warning('Duplicate application attempt', [
@@ -765,11 +789,13 @@ public function finalizeApplication(Request $request, $jobId)
             'timestamp' => now()->toDateTimeString()
         ]);
         return response()->json([
-            'message' => 'Failed to submit application',
+            'message' => 'Failed to finalize application',
             'error' => $e->getMessage()
         ], 500);
     }
 }
+
+
 
 public function applyResume(Request $request, $jobId)
 {
@@ -920,4 +946,6 @@ public function getApplicant($id)
         ], 500);
     }
 }
+
+
 }

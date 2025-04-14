@@ -41,6 +41,7 @@ const DisplayJobs: React.FC = () => {
   const [uploadSpeed, setUploadSpeed] = useState('0 KB/s');
   const [uploadTimeLeft, setUploadTimeLeft] = useState('Calculating...');
   const [isUploading, setIsUploading] = useState(false);
+  const [newlyPostedJobsList, setNewlyPostedJobsList] = useState<Job[]>([]);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -150,7 +151,13 @@ const DisplayJobs: React.FC = () => {
         navigate('/login');
         return null;
     }
-
+  // Add client-side file size validation (as a backup)
+  if (type === 'video' && file.size > 50 * 1024 * 1024) {
+    throw new Error('Video file exceeds 50MB limit');
+  }
+  if (type === 'resume' && file.size > 5 * 1024 * 1024) {
+    throw new Error('Resume file exceeds 5MB limit');
+  }
     const formData = new FormData();
     formData.append('chunk', file); // Field name must match what the backend expects
     formData.append('type', type);
@@ -206,6 +213,8 @@ const DisplayJobs: React.FC = () => {
     if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
   };
+
+  
 
   const formatTime = (seconds: number) => {
     if (seconds < 60) return `${Math.round(seconds)}s`;
@@ -296,7 +305,7 @@ const DisplayJobs: React.FC = () => {
       
       if (axios.isAxiosError(err) && err.response?.status === 409) {
         await Swal.fire({
-          icon: 'error',
+          icon: 'info',
           title: 'Already Applied',
           text: 'You have already applied for this job.',
           background: '#1e293b',

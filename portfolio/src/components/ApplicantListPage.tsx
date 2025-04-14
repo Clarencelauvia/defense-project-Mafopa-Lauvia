@@ -117,7 +117,7 @@ const ApplicantsListPage: React.FC = () => {
                 <h2 className="text-xl font-bold text-white">{applicant.first_name} {applicant.last_name}</h2>
                 <span className={`px-2 py-1 rounded text-xs ${
                   applicant.status === 'pending' ? 'bg-yellow-200 text-yellow-800' : 
-                  applicant.status === 'approved' ? 'bg-green-200 text-green-800' : 
+                  applicant.status === 'accepted' ? 'bg-green-400 text-green-700' : 
                   'bg-red-200 text-red-800'
                 }`}>
                   {applicant.status.charAt(0).toUpperCase() + applicant.status.slice(1)}
@@ -149,14 +149,13 @@ const ApplicantsListPage: React.FC = () => {
                     View Full Profile
                   </button>
                 </Link>
-                <div className="flex gap-2">
-                  <button className="bg-green-600 text-white px-3 py-1 rounded-md hover:bg-green-700 transition-colors duration-300">
-                    Accept
-                  </button>
-                  <button className="bg-red-600 text-white px-3 py-1 rounded-md hover:bg-red-700 transition-colors duration-300">
-                    Reject
-                  </button>
-                </div>
+
+            
+             <Link to={`/employer/applicant/${applicant.id}`} state={{applicantData:applicant}}>
+             <button className='bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300'>
+              View Resume</button>
+             </Link>
+            
               </div>
             </div>
           ))}

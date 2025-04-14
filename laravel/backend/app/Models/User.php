@@ -76,4 +76,6 @@ public function savedJobs()
         ->withTimestamps(); // Optional: if you want to track when the job was saved
 }
 
+
+
 }

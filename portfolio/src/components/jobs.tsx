@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useContext } from 'react';
 import axios from 'axios';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import AOS from 'aos';
 import 'aos/dist/aos.css';
 import Swal from 'sweetalert2';
@@ -32,16 +32,25 @@ function Jobs() {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [jobsPerPage] = useState<number>(8);
   const navigate = useNavigate();
+  const location = useLocation();
+  const [isRecentFilter, setIsRecentFilter] = useState<boolean>(false);
 
   // Access the Pusher instance from the context
   const pusher = useContext(PusherContext);
+
+  // Get query parameters
+  const queryParams = new URLSearchParams(location.search);
+  const showRecentOnly = queryParams.get('recent') === 'true';
 
   useEffect(() => {
     AOS.init({
       duration: 1000,
       once: true,
     });
-  }, []);
+    
+    // Set the filter state based on query parameter
+    setIsRecentFilter(showRecentOnly);
+  }, [showRecentOnly]);
 
   useEffect(() => {
     const fetchJobs = async () => {
@@ -50,7 +59,19 @@ function Jobs() {
         console.log('API Response:', response.data);
         if (Array.isArray(response.data)) {
           setJobs(response.data);
-          setFilteredJobs(response.data);
+          
+          // If recent filter is active, filter jobs immediately
+          if (showRecentOnly) {
+            const now = new Date();
+            const fortyEightHoursAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+            const recentJobs = response.data.filter((job: Job) => {
+              const jobDate = new Date(job.created_at);
+              return jobDate > fortyEightHoursAgo;
+            });
+            setFilteredJobs(recentJobs);
+          } else {
+            setFilteredJobs(response.data);
+          }
         } else {
           setError('Invalid response format. Expected an array.');
           setJobs([]);
@@ -65,7 +86,7 @@ function Jobs() {
     };
 
     fetchJobs();
-  }, []);
+  }, [showRecentOnly]);
 
   // Listen for real-time job postings
   useEffect(() => {
@@ -75,7 +96,11 @@ function Jobs() {
         console.log('New job posted:', newJob);
         // Add the new job to the list
         setJobs((prevJobs) => [newJob, ...prevJobs]);
-        setFilteredJobs((prevJobs) => [newJob, ...prevJobs]);
+        
+        // Also add to filtered jobs if it matches current filter criteria
+        if (!showRecentOnly || isRecentJob(newJob)) {
+          setFilteredJobs((prevJobs) => [newJob, ...prevJobs]);
+        }
       });
 
       // Cleanup on unmount
@@ -83,7 +108,15 @@ function Jobs() {
         pusher.unsubscribe('job-posted');
       };
     }
-  }, [pusher]);
+  }, [pusher, showRecentOnly]);
+
+  // Helper function to check if a job is recently posted
+  const isRecentJob = (job: Job) => {
+    const now = new Date();
+    const fortyEightHoursAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+    const jobDate = new Date(job.created_at);
+    return jobDate > fortyEightHoursAgo;
+  };
 
   const handleSearchInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value);
@@ -93,11 +126,19 @@ function Jobs() {
     const query = searchQuery.toLowerCase().trim();
 
     if (!query) {
-      setFilteredJobs(jobs);
+      // If recent filter is active, only show recent jobs
+      if (showRecentOnly) {
+        const recentJobs = jobs.filter(isRecentJob);
+        setFilteredJobs(recentJobs);
+      } else {
+        setFilteredJobs(jobs);
+      }
       return;
     }
 
-    const filtered = jobs.filter((job) => {
+    let initialFiltered = showRecentOnly ? jobs.filter(isRecentJob) : jobs;
+
+    const filtered = initialFiltered.filter((job) => {
       return (
         job.job_title.toLowerCase().includes(query) ||
         job.job_category.toLowerCase().includes(query) ||
@@ -149,12 +190,30 @@ function Jobs() {
   const currentJobs = filteredJobs.slice(indexOfFirstJob, indexOfLastJob);
 
   const paginate = (pageNumber: number) => setCurrentPage(pageNumber);
+  
   const handlePreviousClick = () => {
     navigate(-1);
   };
 
+  // Toggle between recent and all jobs
+  const toggleRecentFilter = () => {
+    if (isRecentFilter) {
+      // Switch to all jobs
+      setFilteredJobs(jobs);
+      setIsRecentFilter(false);
+      navigate('/jobs', { replace: true });
+    } else {
+      // Switch to recent jobs
+      const recentJobs = jobs.filter(isRecentJob);
+      setFilteredJobs(recentJobs);
+      setIsRecentFilter(true);
+      navigate('/jobs?recent=true', { replace: true });
+    }
+    setCurrentPage(1);
+  };
+
   if (loading) {
-    return <div className="">Loading...</div>;
+    return <div className="flex justify-center items-center h-screen text-white text-xl">Loading jobs...</div>;
   }
 
   if (error) {
@@ -170,7 +229,9 @@ function Jobs() {
           </div>
           <h1 className="ml-4 text-white text-2xl font-bold">Professionals & Matches</h1>
         </Link>
-        <h2 className="text-white text-2xl font-bold">Job Listings</h2>
+        <h2 className="text-white text-2xl font-bold">
+          {isRecentFilter ? 'Recently Posted Jobs (Last 48 Hours)' : 'All Job Listings'}
+        </h2>
         <div className="flex items-center space-x-4">
           <Link to="/settings" className="text-white hover:text-blue-300 transition-colors">
             Settings
@@ -182,18 +243,31 @@ function Jobs() {
       </nav>
 
       <div className="container mx-auto px-4">
-        <button
-          onClick={() => navigate('/dashboard')}
-          className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 mb-4"
-        >
-          Back to Dashboard
-        </button>
+        <div className="flex justify-between mb-6">
+          <button
+            onClick={() => navigate('/dashboard')}
+            className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+          >
+            Back to Dashboard
+          </button>
+          
+          <button
+            onClick={toggleRecentFilter}
+            className={`px-4 py-2 rounded-md ${
+              isRecentFilter 
+                ? 'bg-yellow-600 hover:bg-yellow-700 text-white' 
+                : 'bg-blue-600 hover:bg-blue-700 text-white'
+            }`}
+          >
+            {isRecentFilter ? 'View All Jobs' : 'Show Recent Jobs Only'}
+          </button>
+        </div>
 
         <div className="flex justify-center mb-6">
           <input
             type="search"
             placeholder="Search"
-            className="border-blue-800 border-2 border-opacity-50 rounded-md mr-2 h-[6vh] shadow-sm"
+            className="border-blue-800 border-2 border-opacity-50 rounded-md mr-2 h-[6vh] shadow-sm px-4"
             value={searchQuery}
             onChange={handleSearchInputChange}
           />
@@ -206,7 +280,21 @@ function Jobs() {
         </div>
 
         {currentJobs.length === 0 ? (
-          <p className="text-white text-center">No Jobs Available At the Moment</p>
+          <div className="text-white text-center py-12 bg-white bg-opacity-10 backdrop-blur-md rounded-xl">
+            <p className="text-xl mb-4">
+              {isRecentFilter 
+                ? 'No jobs posted in the last 48 hours.' 
+                : 'No Jobs Available At the Moment'}
+            </p>
+            {isRecentFilter && (
+              <button
+                onClick={toggleRecentFilter}
+                className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700"
+              >
+                View All Jobs
+              </button>
+            )}
+          </div>
         ) : (
           <div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -217,6 +305,11 @@ function Jobs() {
                   data-aos="fade-up"
                   data-aos-delay={index * 100}
                 >
+                  {isRecentJob(job) && (
+                    <div className="bg-yellow-500 text-black text-xs font-bold uppercase px-2 py-1 rounded-md mb-2 inline-block">
+                      New
+                    </div>
+                  )}
                   <h2 className="text-xl font-semibold text-white mb-4 text-center underline" data-aos="fade-down" data-aos-delay={index * 200}>
                     {job.job_category}
                   </h2>
@@ -238,7 +331,9 @@ function Jobs() {
                   <p className="text-sm text-white">
                     <span className="font-semibold">Experience Level:</span> {job.experience_level}
                   </p>
-                  <p className="text-sm text-white">Posted on: {new Date(job.created_at).toLocaleDateString()}</p>
+                  <p className="text-sm text-white">
+                    Posted on: {new Date(job.created_at).toLocaleDateString()}
+                  </p>
 
                   <div className="flex justify-center items-center mt-4">
                     <Link to={`/job/${job.id}`} onClick={() => console.log(`Navigating to job ID: ${job.id}`)}>
@@ -266,15 +361,14 @@ function Jobs() {
         )}
 
         {/* Back Button */}
-        <div className="mt-[-20px]">
+        <div className="mt-8 mb-8">
           <button
             onClick={() => navigate(-1)}
             className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center transition-all duration-300"
           >
-            <FaArrowLeft className="" />
+            <FaArrowLeft className="mr-2" />
             Previous
           </button>
-          <i className='text-blue-950'>hh</i>
         </div>
       </div>
     </div>

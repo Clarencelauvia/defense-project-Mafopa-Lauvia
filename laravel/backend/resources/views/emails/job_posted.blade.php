@@ -48,6 +48,7 @@
         <p>Thank you for using our platform!</p>
         <div class="footer">
             <p>Best regards,</p>
+            <p>If you'd like to stop receiving these notifications, please update your notification settings in your account.</p>
             <p><strong>PAM Team</strong></p>
         </div>
     </div>

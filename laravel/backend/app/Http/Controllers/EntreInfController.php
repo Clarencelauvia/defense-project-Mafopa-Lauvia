@@ -18,7 +18,8 @@ use App\Models\Job; // Import the Job model
 use App\Models\JobPosting;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-
+use App\Events\ApplicantStatusUpdated;
+use Illuminate\Support\Facades\Mail;
 
 
 class EntreInfController extends Controller
@@ -70,6 +71,13 @@ class EntreInfController extends Controller
                   
                 ],201); 
                 // 201 = created
+
+                 \App\Models\Notication::create([
+        'type' => 'employer',
+        'message' => 'New employer registered: ' . $entreInf->organisation_name
+    ]);
+    
+    return response()->json([/*...*/]);
     }
 
         // Login in an existing user 
@@ -297,35 +305,72 @@ public function getApplicantById($id)
     try {
         $applicant = Applicants::findOrFail($id);
 
-        // Format URLs correctly
-        if ($applicant->video_url) {
-            $applicant->video_url = asset($applicant->video_url);
+            \Log::info('Raw applicant data:', [
+            'db_video_url' => $applicant->video_url,
+            'db_resume_url' => $applicant->resume_url
+        ]);      
+       
+        $applicant->video_url = $applicant->video_url ? 
+            Storage::url(str_replace('/storage/', '', $applicant->video_url)) : 
+            null;
+        
+        $applicant->resume_url = $applicant->resume_url ? 
+            Storage::url(str_replace('/storage/', '', $applicant->resume_url)) : 
+            null;
+     
+
+        if (!$applicant->first_name || !$applicant->last_name) {
+            throw new \Exception('Applicant data is missing required name fields');
         }
 
-        if ($applicant->resume_url) {
-            $applicant->resume_url = asset($applicant->resume_url);
-        }
+           return response()->json([
+            'id' => $applicant->id,
+            'first_name' => $applicant->first_name,
+            'last_name' => $applicant->last_name,
+            'email' => $applicant->email,
+            'gender' => $applicant->gender,
+            'password'=>$applicant->password,
+            'status' => $applicant->status,
+            'image' => $applicant->image,
+            'contact_number' => $applicant->contact_number,
+            'job_id' => $applicant->job_id,
+            'job_title' => $applicant->job_title,
+            'job_description' => $applicant->job_description,
+            'video_url' => $applicant->video_url ? url($applicant->video_url) : null,
+            'resume_url' => $applicant->resume_url ? url($applicant->resume_url) : null,
+            'created_at' => $applicant->created_at,
+            'updated_at' => $applicant->updated_at,
+            'job' => $applicant->job,
+            'job_posting' => $applicant->jobPosting,
+            'entre_inf' => $applicant->entre_inf,
+            'entre_inf_id' => $applicant->entre_inf_id,
+            'qualification' => $applicant->qualification,
+            'educational_level' => $applicant->educational_level,
+            'address' => $applicant->address,
+            'skills' => $applicant->skills,
+            'experienceLevel'=> $applicant->experienceLevel,
+            'application_date' => $applicant->application_date
+        ]);
 
-        return response()->json($applicant);
+
+
+        return response()->json([
+            'applicant' => $applicant,
+            'video_content' => $videoContent,
+            'resume_content' => $resumeContent,
+        ]);
     } catch (\Exception $e) {
         \Log::error('Failed to fetch applicant', ['error' => $e->getMessage()]);
         return response()->json(['message' => 'Failed to fetch applicant details'], 500);
     }
 }
 
+// In EntreInfController.php
 public function updateApplicantStatus(Request $request, $id)
 {
     \Log::info('Updating applicant status', [
         'applicant_id' => $id,
-        'new_status' => $request->status,
         'request_data' => $request->all()
-    ]);
-
-    Log::info('Updating applicant status - Request received', [
-        'applicant_id' => $id,
-        'request_data' => $request->all(),
-        'content_type' => $request->header('Content-Type'),
-        'accept' => $request->header('Accept')
     ]);
 
     try {
@@ -334,36 +379,37 @@ public function updateApplicantStatus(Request $request, $id)
         ]);
 
         $applicant = Applicants::findOrFail($id);
-        Log::info('Found applicant', [
-            'current_status' => $applicant->status,
-            'new_status' => $request->status
-        ]);
+        \Log::info('Found applicant:', $applicant->toArray());
 
+        $oldStatus = $applicant->status;
         $applicant->status = $request->status;
         $applicant->save();
 
-        \Log::info('Applicant status updated successfully', [
-            'applicant_id' => $id,
-            'new_status' => $applicant->status
+        \Log::info('Status updated successfully', [
+            'old_status' => $oldStatus,
+            'new_status' => $request->status
         ]);
+
+        // Dispatch the event
+        event(new ApplicantStatusUpdated($applicant, $request->status));
 
         return response()->json([
             'message' => 'Applicant status updated successfully',
             'applicant' => $applicant
         ]);
+
     } catch (\Exception $e) {
-        \Log::error('Failed to update applicant status', [
+        \Log::error('Failed to update status', [
             'error' => $e->getMessage(),
             'stack_trace' => $e->getTraceAsString()
         ]);
-
+        
         return response()->json([
-            'message' => 'Failed to update applicant status',
+            'message' => 'Failed to update status',
             'error' => $e->getMessage()
         ], 500);
     }
 }
-
 
 // UserController.php
 public function getUser($userId)

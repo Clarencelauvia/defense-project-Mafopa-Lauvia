@@ -11,7 +11,7 @@ import AOS from 'aos';
 import Pusher from 'pusher-js';
 import LoginFrequencyGraph from './LoginFrequencyGraph';
 import { FaUser, FaBriefcase, FaCheckCircle, FaTimesCircle, FaBell, FaSignOutAlt, FaUserCog } from 'react-icons/fa';
-
+import NotificationBell from './NotificationBell';
 // Interfaces
 interface LoginDate {
   login_date: string;
@@ -367,19 +367,56 @@ useEffect(() => {
       }
     });
   };
+// In dashboard.tsx, add this to the useEffect for Pusher
+useEffect(() => {
+  if (!pusher || !user?.id) return;
 
+  // Subscribe to notifications channel
+  const notificationsChannel = pusher.subscribe(`notifications.${user.id}`);
+  
+  notificationsChannel.bind('App\\Events\\NewNotification', (data: any) => {
+    Swal.fire({
+      title: 'New Notification',
+      text: data.message,
+      icon: 'info',
+      confirmButtonText: 'View'
+    }).then((result) => {
+      if (result.isConfirmed && data.job_id) {
+        navigate(`/job/${data.job_id}`);
+      }
+    });
+    
+    // The NotificationBell component will handle refreshing its own state
+  });
+
+  return () => {
+    notificationsChannel.unbind('App\\Events\\NewNotification');
+  };
+}, [pusher, user?.id, navigate]);
 
 
 useEffect(() => {
   // Initialize Pusher
-  const pusherClient = new Pusher('de6b8a16c9b286c69d8b', { // Your Pusher key
+  const pusherClient = new Pusher('de6b8a16c9b286c69d8b', { // my Pusher key
     cluster: 'mt1',
-    forceTLS: true
+    forceTLS: true,
+    authEndpoint: 'http://localhost:8000/api/pusher/auth',
+    auth:{
+      headers:{
+        Authorization:`Bearer ${localStorage.getItem('token')}`,
+      },
+    },
   });
+
+  pusherClient.connection.bind('state_change', (states: any) => {
+    console.log('Pusher connection state changed:', states.current);
+  });
+
   setPusher(pusherClient);
 
   return () => {
     if (pusherClient) {
+      console.log('Disconnecting Pusher...');
       pusherClient.disconnect();
     }
   };
@@ -388,44 +425,72 @@ useEffect(() => {
 useEffect(() => {
   if (!pusher || !user?.id) return;
 
-  // Subscribe to channel for this user
-  const channel = pusher.subscribe(`user.${user.id}`);
+  // Subscribe to the applicant's private channel
+  const channel = pusher.subscribe(`private-applicant.${user.id}`);
   
-  // Listen for new matching job events
-  channel.bind('App\\Events\\JobPosted', (data: any) => {
+  channel.bind('App\\Events\\ApplicantStatusUpdated', (data: any) => {
+    console.log('Status update received:', data);
     Swal.fire({
-      title: 'New Matching Job!',
+      title: 'Application Status Update',
       html: `
         <div>
-          <p><strong>${data.job.job_title}</strong></p>
-          <p>${data.job.company_description}</p>
-          <p>Location: ${data.job.location}</p>
-          <p>Salary: ${data.job.salary_range}</p>
+          <p>Your application for <strong>${data.job_title}</strong></p>
+          <p>Status: <strong>${data.status}</strong></p>
+          <p>${data.message}</p>
         </div>
       `,
-      icon: 'info',
-      confirmButtonText: 'View Job',
+      icon: data.status === 'accepted' ? 'success' : 
+            data.status === 'denied' ? 'error' : 'info',
+      confirmButtonText: 'View Details',
       showCancelButton: true,
       cancelButtonText: 'Dismiss'
     }).then((result) => {
       if (result.isConfirmed) {
-        navigate(`/job/${data.job.id}`);
-      }
-    });
-    
-    // Refresh job recommendations
-    fetchJobs().then(jobsData => {
-      if (jobsData && user) {
-        setFilteredJobs(filterJobs(jobsData, user));
+        navigate(`/applications/${data.job_id}`);
       }
     });
   });
 
   return () => {
-    channel.unbind('App\\Events\\JobPosted');
+    channel.unbind('App\\Events\\ApplicantStatusUpdated');
   };
-}, [pusher, user, navigate]);
- 
+}, [pusher, user?.id, navigate]);
+
+useEffect(() => {
+  if (!pusher || !user?.id) return;
+
+  // Subscribe to job posted channel
+  const channel = pusher.subscribe('job-posted');
+  
+  channel.bind('job.posted', (data: any) => {
+    console.log('New job posted:', data);
+    Swal.fire({
+      title: 'New Job Matching Your Profile!',
+      html: `
+        <div>
+          <p><strong>${data.job_title}</strong></p>
+          <p>${data.company_description}</p>
+          <p>Location: ${data.location}</p>
+          <p>Salary: ${data.salary_range}</p>
+        </div>
+      `,
+      icon: 'info',
+      confirmButtonText: 'View Job',
+      showCancelButton: true,
+      cancelButtonText: 'Dismiss',
+      timer: 10000, // Auto-dismiss after 10 seconds
+      timerProgressBar: true
+    }).then((result) => {
+      if (result.isConfirmed) {
+        navigate(`/job/${data.job_id}`);
+      }
+    });
+  });
+
+  return () => {
+    channel.unbind('job.posted');
+  };
+}, [pusher, user?.id, navigate]);
   return (
     <div className="bg-gradient-to-b from-blue-800 to-blue-950 min-h-screen w-screen">
       {/* Top Navigation Bar */}
@@ -440,6 +505,7 @@ useEffect(() => {
         <h2 className="text-white text-2xl font-bold">Job Seeker's Dashboard</h2>
 
         <div className="flex items-center space-x-4">
+        <NotificationBell/>
           <Link to="/settings" className="text-white hover:text-blue-300 transition-colors">
             Settings
           </Link>
@@ -578,7 +644,7 @@ useEffect(() => {
                     </div>
                   </div>
                   <p className="text-3xl font-bold text-white mb-2">{newlyPostedJobs}</p>
-                  <Link to="/jobs" className="text-yellow-300 hover:text-yellow-200 text-sm">View All →</Link>
+                  <Link to="/jobs?recent=true" className="text-yellow-300 hover:text-yellow-200 text-sm">View All →</Link>
                 </div>
               </div>
 

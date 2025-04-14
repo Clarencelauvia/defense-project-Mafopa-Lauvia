@@ -91,6 +91,13 @@ function RegisterPage() {
         setErrorMessage('Contact number must be a valid number with a maximum of 15 digits.');
         return;
       }
+      const email = formData.email;
+
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        setErrorMessage('Please enter a valid email address.');
+        return;
+      }
 
       // Create a FormData object to send the file and other form data
       const formDataToSend = new FormData();

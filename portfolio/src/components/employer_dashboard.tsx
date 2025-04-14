@@ -350,7 +350,7 @@ useEffect(() => {
     channel.bind('App\\Events\\NewApplicationEvent', (data: any) => {
       Swal.fire({
         title: 'New Application!',
-        text: `${data.first_name} ${data.last_name} applied to your job posting`,
+        text: `A new user applied to your job posting ${data.job_title}`,
         icon: 'info',
         confirmButtonText: 'View'
       }).then(() => {
@@ -363,6 +363,33 @@ useEffect(() => {
   
     return () => {
       pusher.unsubscribe('applications');
+    };
+  }, [pusher, navigate]);
+
+  useEffect(() => {
+    if (!pusher) return;
+  
+    console.log('Subscribing to applications channel'); // Debug log
+  
+    const applicationsChannel = pusher.subscribe('private-applications');
+    
+    applicationsChannel.bind('App\\Events\\ApplicantStatusUpdated', (data: any) => {
+      console.log('Received ApplicantStatusUpdated event:', data); // Debug log
+      Swal.fire({
+        title: 'Status Updated',
+        text: `Application status changed to ${data.status}`,
+        icon: data.status === 'accepted' ? 'success' : 'error',
+        confirmButtonText: 'View'
+      }).then((result) => {
+        if (result.isConfirmed) {
+          navigate(`/employer/applicant/${data.id}`);
+        }
+      });
+    });
+  
+    return () => {
+      console.log('Unbinding ApplicantStatusUpdated event'); // Debug log
+      applicationsChannel.unbind('App\\Events\\ApplicantStatusUpdated');
     };
   }, [pusher, navigate]);
 
@@ -401,7 +428,8 @@ useEffect(() => {
   <Link to="/message-list" className="text-white hover:text-blue-300 transition-colors relative">
     <FaEnvelope className="text-xl" />
     {/* Always render the badge container but only show when count > 0 */}
-    <span className={`absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center transition-opacity duration-200 ${unreadMessagesCount > 0 ? 'opacity-100' : 'opacity-0'}`}>
+    <span className={`absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center transition-opacity 
+      duration-200 ${unreadMessagesCount > 0 ? 'opacity-100' : 'opacity-0'}`}>
       {unreadMessagesCount}
     </span>
   </Link>

@@ -11,14 +11,24 @@ use App\Mail\JobPostedNotification;
 use Illuminate\Support\Facades\Mail; 
 use App\Services\TwilioService;
 use App\Models\User;
+use App\Models\Notifications;
+use App\Models\Alert;
 
 
-class jobpostingcontroller extends Controller
+
+class jobPostingcontroller extends Controller
 {
     public function jobPost(Request $request)
     {
         \Log::info('Job Posting Request Data:', $request->all());
         \Log::info('Received job posting data:', $request->all());
+        // In jobpostingcontroller.php, add more detailed error logging:
+\Log::info('Auth check:', ['check' => Auth::check(), 'user' => Auth::user()]);
+
+if (!Auth::check()) {
+    \Log::error('User not authenticated');
+    return response()->json(['message' => 'Unauthorized'], 401);
+}
     
         $request->validate([
             'job_title' => 'required|string|max:255',
@@ -77,19 +87,46 @@ class jobpostingcontroller extends Controller
     // Broadcast the event
     broadcast(new JobPosted($jobPosting))->toOthers();
 
-       // Find employees who match the job criteria (warm matches)
-       $warmMatches = User::where('experience_level', $jobPosting->experience_level)
-       ->orWhere('educational_level', $jobPosting->educational_level)
-       ->orWhere('qualification', $jobPosting->qualification)
-       ->get();
+
+// Find employees who match at least two criteria 
+$warmMatches = User::where(function($query) use ($jobPosting) {
+    $query->where('qualification', $jobPosting->qualification)
+          ->where('educational_level', $jobPosting->educational_level);
+})
+->orWhere(function($query) use ($jobPosting) {
+    $query->where('qualification', $jobPosting->qualification)
+          ->where('address', $jobPosting->location); // User's 'address' vs Job's 'location'
+})
+->orWhere(function($query) use ($jobPosting) {
+    $query->where('educational_level', $jobPosting->educational_level)
+          ->where('experience_level', $jobPosting->experience_level);
+})
+->orWhere(function($query) use ($jobPosting) {
+    $query->where('experience_level', $jobPosting->experience_level)
+          ->where('qualification', $jobPosting->qualification);
+})
+->get();
 
    // Send email notifications to matched employees
-   foreach ($warmMatches as $employee) {
+foreach ($warmMatches as $employee) {
     try {
-        \Log::info('Sending email to employee:', ['email' => $employee->email]);
-        Mail::to($employee->email)->send(new JobPostedNotification($jobPosting));
+        // Create notification for each matching job seeker
+        Alert::create([
+            'type' => 'job_match',
+            'message' => 'New job matches your profile: ' . $jobPosting->job_title,
+            'job_id' => $jobPosting->id,
+            'user_id' => $employee->id,
+            'is_read' => false
+        ]);
+
+        try {
+            Mail::to($employee->email)->send(new JobPostedNotification($jobPosting));
+        } catch (\Exception $e) {
+            \Log::error('Error sending email', ['error' => $e->getMessage()]);
+        }
     } catch (\Exception $e) {
-        \Log::error('Error sending email to employee:', ['email' => $employee->email, 'error' => $e->getMessage()]);
+        \Log::error('Error creating notification', ['error' => $e->getMessage()]);
+        // Continue with other notifications even if one fails
     }
 }
 

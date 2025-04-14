@@ -186,9 +186,9 @@ const AdminLogin: React.FC = () => {
             {isLoading ? 'Logging in...' : 'Login'}
           </button>
 
-<div className="text-center mt-4">
+<div className="text-center bg-wh mt-4">
   <Link to="/admin/forgot-password">
-    <button type="button" className="text-blue-300 hover:underline">
+    <button type="button" className="text-blue-300 bg-white hover:underline">
       Forgot Password?
     </button>
   </Link>

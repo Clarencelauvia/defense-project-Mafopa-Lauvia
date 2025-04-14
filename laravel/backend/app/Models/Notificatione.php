@@ -5,7 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class Notification extends Model
+class Notificatione extends Model
 {
     use HasFactory;
 
@@ -18,6 +18,7 @@ class Notification extends Model
         'read'
     ];
 
+    // Add relationships if needed
     public function user()
     {
         return $this->belongsTo(User::class);
@@ -26,10 +27,5 @@ class Notification extends Model
     public function employer()
     {
         return $this->belongsTo(EntreInf::class, 'employer_id');
-    }
-
-    public function job()
-    {
-        return $this->belongsTo(JobPosting::class);
     }
 }
