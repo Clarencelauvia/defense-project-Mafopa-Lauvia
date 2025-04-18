@@ -20,7 +20,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use App\Events\ApplicantStatusUpdated;
 use Illuminate\Support\Facades\Mail;
-
+use App\Events\NewUserRegistered;
 
 class EntreInfController extends Controller
 {
@@ -64,7 +64,14 @@ class EntreInfController extends Controller
         ]);
                 // $token = $user->createToken('auth_token')->plainTextToken;
     
-    
+        
+    // Broadcast event
+    broadcast(new NewUserRegistered($entreInf, 'employer'))->toOthers();
+
+    \App\Models\Notication::create([
+        'type' => 'employer',
+        'message' => 'New employer registered: ' . $entreInf->organisation_name
+    ]);
                 return response()->json([
                     'message'=>'User registered successfully',
                     'user'=> $entreInf,
@@ -72,12 +79,7 @@ class EntreInfController extends Controller
                 ],201); 
                 // 201 = created
 
-                 \App\Models\Notication::create([
-        'type' => 'employer',
-        'message' => 'New employer registered: ' . $entreInf->organisation_name
-    ]);
-    
-    return response()->json([/*...*/]);
+              
     }
 
         // Login in an existing user 

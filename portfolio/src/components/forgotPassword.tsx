@@ -61,7 +61,7 @@ const ForgotPassword: React.FC = () => {
             type="submit"
             className="w-full bg-blue-600 text-white py-2 rounded-md mt-4 hover:bg-blue-700 transition"
           >
-            Send Reset Link
+            Send Default Password
           </button>
         </form>
       </div>

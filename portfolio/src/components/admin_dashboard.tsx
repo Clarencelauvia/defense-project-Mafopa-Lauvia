@@ -7,6 +7,8 @@ import {
   faCheckCircle, faTimesCircle, faExclamationCircle, faDollarSign,
   faSignOutAlt, faUserFriends, faEnvelope
 } from '@fortawesome/free-solid-svg-icons';
+import Swal from 'sweetalert2';
+import Pusher from 'pusher-js';
 
 interface User {
   id: string;
@@ -41,6 +43,9 @@ interface Notification {
   time: string;
   read: boolean;
 }
+interface ApiError{
+  message:string;
+}
 
 function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('overview');
@@ -51,26 +56,146 @@ function AdminDashboard() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [metricsData, setMetricsData] = useState<Metric[]>([]);
-const [loadingMetrics, setLoadingMetrics] = useState(true);
+  const [loadingMetrics, setLoadingMetrics] = useState(true);
+  const [banDays, setBanDays] = useState(7);
+  const [selectedUserId, setSelectedUserId] = useState('');
+  const [activities, setActivities] = useState([]);
+  const [loadingActivities, setLoadingActivities] = useState(true);
+  const [users, setUsers] = useState<User[]>([]);
+  const [jobs, setJobs] = useState<JobPosting[]>([]);
+
+  const fetchUsers = async () => {
+    try {
+      const response = await fetch('http://localhost:8000/api/admin/users', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('adminToken')}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      const data = await response.json();
+      setUsers(data);
+    } catch (error) {
+      console.error('Error fetching users:', error);
+    }
+  };
+
+  const fetchJobs = async () => {
+    try {
+      const response = await fetch('http://localhost:8000/api/admin/jobs', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('adminToken')}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      const data = await response.json();
+      setJobs(data);
+    } catch (error) {
+      console.error('Error fetching jobs:', error);
+    }
+  };
+
+  // Fetch initial users and jobs
+  useEffect(() => {
+    fetchUsers();
+    fetchJobs();
+  }, []);
+
+  // Pusher setup
+  useEffect(() => {
+    const pusher = new Pusher('de6b8a16c9b286c69d8b', {
+      cluster: 'mt1',
+      forceTLS: true,
+      authEndpoint: 'http://localhost:8000/api/pusher/auth',
+      auth: {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('adminToken')}`,
+        },
+      },
+    });
+
+    // User registration channel
+    const userChannel = pusher.subscribe('admin.users');
+    
+    userChannel.bind('App\\Events\\NewUserRegistered', (data: any) => {
+      const userData = data.user;
+      const newUser: User = {
+        id: userData.id.toString(),
+        name: data.type === 'employer' ? 
+          userData.organisation_name : 
+          `${userData.first_name} ${userData.last_name || ''}`,
+        email: userData.email,
+        type: data.type,
+        status: 'active',
+        joinDate: new Date().toISOString()
+      };
+      
+      setUsers(prevUsers => [newUser, ...prevUsers]);
+      
+      // Show notification
+      const notification: Notification = {
+        id: Date.now(),
+        type: 'user',
+        message: `New ${data.type} registered: ${newUser.name}`,
+        time: 'Just now',
+        read: false
+      };
+      setNotifications(prev => [notification, ...prev]);
+    });
+
+    // Job posting channel
+    const jobChannel = pusher.subscribe('admin.jobs');
+    
+    jobChannel.bind('App\\Events\\JobPosted', (data: any) => {
+      const jobData = data.job;
+      const newJob: JobPosting = {
+        id: jobData.id.toString(),
+        title: jobData.job_title,
+        company: jobData.company_description,
+        status: 'active',
+        category: jobData.job_category,
+        featured: false,
+        postedDate: new Date(jobData.created_at).toISOString()
+      };
+      
+      setJobs(prevJobs => [newJob, ...prevJobs]);
+      
+      // Show notification
+      const notification: Notification = {
+        id: Date.now(),
+        type: 'job',
+        message: `New job posted: ${newJob.title} by ${newJob.company}`,
+        time: 'Just now',
+        read: false
+      };
+      setNotifications(prev => [notification, ...prev]);
+    });
+
+    return () => {
+      userChannel.unbind_all();
+      userChannel.unsubscribe();
+      jobChannel.unbind_all();
+      jobChannel.unsubscribe();
+      pusher.disconnect();
+    };
+  }, []);
 
   // Fetch notifications from API
- // Fetch notifications from API
-useEffect(() => {
-  const fetchNotifications = async () => {
+  useEffect(() => {
+    const fetchNotifications = async () => {
       try {
-          const response = await fetch('http://localhost:8000/api/notifications');
-          const data = await response.json();
-          setNotifications(data.notifications || []); // Handle case where notifications is undefined
+        const response = await fetch('http://localhost:8000/api/notifications');
+        const data = await response.json();
+        setNotifications(data.notifications || []);
       } catch (error) {
-          console.error('Error fetching notifications:', error);
+        console.error('Error fetching notifications:', error);
       }
-  };
-  
-  fetchNotifications();
-  const interval = setInterval(fetchNotifications, 60000); // Refresh every minute
-  
-  return () => clearInterval(interval);
-}, []);
+    };
+    
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 60000);
+    
+    return () => clearInterval(interval);
+  }, []);
 
   const handleNotificationClick = async (id: number) => {
     try {
@@ -86,154 +211,263 @@ useEffect(() => {
     }
   };
 
-  const metrics: Metric[] = [
-    { 
-      label: 'Active Users', 
-      value: 12458, 
-      change: 12.5,
-      icon: <FontAwesomeIcon icon={faUsers} className="w-6 h-6 text-blue-500" />
-    },
-    { 
-      label: 'Active Jobs', 
-      value: 867, 
-      change: 8.2,
-      icon: <FontAwesomeIcon icon={faBriefcase} className="w-6 h-6 text-green-500" />
-    },
-    { 
-      label: 'Revenue', 
-      value: 45789, 
-      change: -2.4,
-      icon: <FontAwesomeIcon icon={faDollarSign} className="w-6 h-6 text-purple-500" />
-    },
-    { 
-      label: 'Success Rate', 
-      value: 92, 
-      change: 3.8,
-      icon: <FontAwesomeIcon icon={faCheckCircle} className="w-6 h-6 text-emerald-500" />
-    }
-  ];
+  // Fetch metrics
+  useEffect(() => {
+    const fetchMetrics = async () => {
+      try {
+        const response = await fetch('http://localhost:8000/api/admin/metrics', {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('adminToken')}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        const data = await response.json();
+        setMetricsData([
+          { 
+            label: 'Active Users', 
+            value: data.activeUsers,
+            change: data.userGrowth,
+            icon: <FontAwesomeIcon icon={faUsers} className="w-6 h-6 text-blue-500" />
+          },
+          { 
+            label: 'Active Jobs', 
+            value: data.activeJobs,
+            change: data.jobGrowth,
+            icon: <FontAwesomeIcon icon={faBriefcase} className="w-6 h-6 text-green-500" />
+          },
+          { 
+            label: 'Revenue', 
+            value: data.revenue,
+            change: data.revenueChange,
+            icon: <FontAwesomeIcon icon={faDollarSign} className="w-6 h-6 text-purple-500" />
+          },
+          { 
+            label: 'Success Rate', 
+            value: data.successRate,
+            change: data.successRateChange,
+            icon: <FontAwesomeIcon icon={faCheckCircle} className="w-6 h-6 text-emerald-500" />
+          }
+        ]);
+      } catch (error) {
+        console.error('Error fetching metrics:', error);
+      } finally {
+        setLoadingMetrics(false);
+      }
+    };
+    
+    fetchMetrics();
+  }, []);
 
-
-useEffect(() => {
-  const fetchMetrics = async () => {
-    try {
-      const response = await fetch('http://localhost:8000/api/admin/metrics');
-      const data = await response.json();
-      setMetricsData([
-        { 
-          label: 'Active Users', 
-          value: data.activeUsers,
-          change: data.userGrowth,
-          icon: <FontAwesomeIcon icon={faUsers} className="w-6 h-6 text-blue-500" />
-        },
-        { 
-          label: 'Active Jobs', 
-          value: data.activeJobs,
-          change: data.jobGrowth,
-          icon: <FontAwesomeIcon icon={faBriefcase} className="w-6 h-6 text-green-500" />
-        },
-        { 
-          label: 'Revenue', 
-          value: data.revenue,
-          change: data.revenueChange,
-          icon: <FontAwesomeIcon icon={faDollarSign} className="w-6 h-6 text-purple-500" />
-        },
-        { 
-          label: 'Success Rate', 
-          value: data.successRate,
-          change: data.successRateChange,
-          icon: <FontAwesomeIcon icon={faCheckCircle} className="w-6 h-6 text-emerald-500" />
+  // Fetch activities
+  useEffect(() => {
+    const fetchActivities = async () => {
+      try {
+        const token = localStorage.getItem('adminToken');
+      
+        if (!token) {
+          console.error('No admin token found');
+          return;
         }
-      ]);
-    } catch (error) {
-      console.error('Error fetching metrics:', error);
-    } finally {
-      setLoadingMetrics(false);
-    }
-  };
-  
-  fetchMetrics();
-}, []);
-
-const [activities, setActivities] = useState([]);
-const [loadingActivities, setLoadingActivities] = useState(true);
-
-useEffect(() => {
-  const fetchActivities = async () => {
-    try {
-      const response = await fetch('http://localhost:8000/api/admin/activities');
-      const data = await response.json();
-      setActivities(data);
-    } catch (error) {
-      console.error('Error fetching activities:', error);
-    } finally {
-      setLoadingActivities(false);
-    }
-  };
-  
-  fetchActivities();
-}, []);
-
-  const users: User[] = [
-    {
-      id: '1',
-      name: 'John Smith',
-      email: 'john@example.com',
-      type: 'employer',
-      status: 'active',
-      joinDate: '2024-03-10'
-    },
-    {
-      id: '2',
-      name: 'Sarah Johnson',
-      email: 'sarah@example.com',
-      type: 'jobseeker',
-      status: 'active',
-      joinDate: '2024-03-15'
-    },
-    {
-      id: '3',
-      name: 'Mike Brown',
-      email: 'mike@example.com',
-      type: 'employer',
-      status: 'inactive',
-      joinDate: '2024-02-28'
-    }
-  ];
-
-  const jobs: JobPosting[] = [
-    {
-      id: '1',
-      title: 'Senior Software Engineer',
-      company: 'Tech Corp',
-      status: 'active',
-      category: 'Technology',
-      featured: true,
-      postedDate: '2024-03-12'
-    },
-    {
-      id: '2',
-      title: 'Marketing Manager',
-      company: 'Creative Solutions',
-      status: 'pending',
-      category: 'Marketing',
-      featured: false,
-      postedDate: '2024-03-18'
-    },
-    {
-      id: '3',
-      title: 'UX Designer',
-      company: 'Design Hub',
-      status: 'removed',
-      category: 'Design',
-      featured: true,
-      postedDate: '2024-03-05'
-    }
-  ];
+        
+        const response = await fetch('http://localhost:8000/api/admin/activities', {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('adminToken')}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        setActivities(data);
+      } catch (error) {
+        console.error('Error fetching activities:', error);
+      } finally {
+        setLoadingActivities(false);
+      }
+    };
+    
+    fetchActivities();
+  }, []);
 
   const toggleTheme = () => {
     setIsDarkMode(!isDarkMode);
     document.documentElement.classList.toggle('dark', !isDarkMode);
+  };
+
+// Example for handleBanUser
+const handleBanUser = async (userId: string, userType: string) => {
+  try {
+    const response = await fetch(`http://localhost:8000/api/admin/users/${userId}/${userType}/ban`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('adminToken')}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ days: banDays })
+    });
+    
+    const data = await response.json();
+    if (response.ok) {
+      Swal.fire({
+        title: 'User Banned',
+        text: `User has been banned for ${banDays} days until ${new Date(data.user.banned_until).toLocaleString()}`,
+        icon: 'success'
+      });
+      
+      // Refresh users
+      fetchUsers();
+    } else {
+      throw new Error(data.message || 'Failed to ban user');
+    }
+  } catch (error) {
+    let errorMessage = 'An unexpected error occurred';
+    if (error instanceof Error) {
+      errorMessage = error.message;
+    }
+    Swal.fire({
+      title: 'Error',
+      text: errorMessage,
+      icon: 'error'
+    });
+  }
+};
+  const handleUnbanUser = async (userId: string, userType: string) => {
+    try {
+      const response = await fetch(`http://localhost:8000/api/admin/users/${userId}/${userType}/unban`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('adminToken')}`,
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      const data = await response.json();
+      if (response.ok) {
+        Swal.fire({
+          title: 'User Unbanned',
+          text: 'User has been unbanned successfully',
+          icon: 'success'
+        });
+        
+        // Refresh users
+        fetchUsers();
+      } else {
+        throw new Error(data.message || 'Failed to unban user');
+      }
+    } catch (error) {
+      let errorMessage = 'An unexpected error occurred';
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      }
+      Swal.fire({
+        title: 'Error',
+        text: errorMessage,
+        icon: 'error'
+      });
+    }
+  };
+
+  const handleDeleteUser = async (userId: string, userType: string) => {
+    const result = await Swal.fire({
+      title: 'Are you sure?',
+      text: "You won't be able to revert this!",
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#3085d6',
+      cancelButtonColor: '#d33',
+      confirmButtonText: 'Yes, delete it!'
+    });
+    
+    if (result.isConfirmed) {
+      try {
+        const response = await fetch(`http://localhost:8000/api/admin/users/${userId}/${userType}`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('adminToken')}`,
+          }
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+          Swal.fire(
+            'Deleted!',
+            'User has been deleted.',
+            'success'
+          );
+          // Refresh users
+          fetchUsers();
+        } else {
+          throw new Error(data.message || 'Failed to delete user');
+        }
+      } catch (error) {
+        let errorMessage = 'An unexpected error occurred';
+        if (error instanceof Error) {
+          errorMessage = error.message;
+        } else if (typeof error === 'string') {
+          errorMessage = error;
+        }
+        Swal.fire({
+          title: 'Error',
+          text: errorMessage,
+          icon: 'error'
+        });
+      }
+    }
+  };
+
+  const handleDeleteJob = async (jobId: string) => {
+    const result = await Swal.fire({
+      title: 'Are you sure?',
+      text: "This job will be deleted and the employer will be notified!",
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#3085d6',
+      cancelButtonColor: '#d33',
+      confirmButtonText: 'Yes, delete it!'
+    });
+    
+    if (result.isConfirmed) {
+      try {
+        const response = await fetch(`http://localhost:8000/api/admin/jobs/${jobId}`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('adminToken')}`,
+          }
+        });
+        
+        const data = await response.json();
+        if (response.ok) {
+          Swal.fire(
+            'Deleted!',
+            'Job has been deleted and employer notified.',
+            'success'
+          );
+          
+          // Refresh jobs
+          fetchJobs();
+        } else {
+          throw new Error(data.message || 'Failed to delete job');
+        }
+      } catch (error) {
+        let errorMessage = 'An unexpected error occurred';
+        if (error instanceof Error) {
+          errorMessage = error.message;
+        } else if (typeof error === 'string') {
+          errorMessage = error;
+        }
+        Swal.fire({
+          title: 'Error',
+          text: errorMessage,
+          icon: 'error'
+        });
+      }
+    }
   };
 
   const handleLogout = () => {
@@ -397,7 +631,7 @@ useEffect(() => {
 
               {/* Metrics Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                {metrics.map((metric, index) => (
+                {metricsData.map((metric, index) => (
                   <div key={index} className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-6 border border-blue-300 border-opacity-30">
                     <div className="flex justify-between items-center mb-4">
                       <div className="w-10 h-10 rounded-full bg-blue-500 bg-opacity-30 flex items-center justify-center">
@@ -500,6 +734,22 @@ useEffect(() => {
                   </select>
                 </div>
 
+                {/* Ban Days Selector */}
+                <div className="flex items-center gap-4 mb-4">
+                  <label className="text-blue-300">Ban Duration (days):</label>
+                  <select
+                    className="px-4 py-2 bg-white bg-opacity-5 border border-blue-300 border-opacity-30 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white"
+                    value={banDays}
+                    onChange={(e) => setBanDays(Number(e.target.value))}
+                  >
+                    <option value="1">1</option>
+                    <option value="7">7</option>
+                    <option value="30">30</option>
+                    <option value="365">365</option>
+                    <option value="9999">Permanent</option>
+                  </select>
+                </div>
+
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead>
@@ -545,8 +795,27 @@ useEffect(() => {
                             {new Date(user.joinDate).toLocaleDateString()}
                           </td>
                           <td className="px-6 py-4 text-sm">
-                            <button className="text-white bg-red-600  hover:text-blue-200 mr-2">Delete</button>
-                            <button className="text-white bg-yellow-500 hover:text-red-200">Suspend</button>
+                            {user.status === 'suspended' ? (
+                              <button 
+                                onClick={() => handleUnbanUser(user.id, user.type)}
+                                className="text-white bg-green-600 hover:bg-green-700 mr-2 px-3 py-1 rounded"
+                              >
+                                Unban
+                              </button>
+                            ) : (
+                              <button 
+                                onClick={() => handleBanUser(user.id, user.type)}
+                                className="text-white bg-yellow-500 hover:bg-yellow-600 mr-2 px-3 py-1 rounded"
+                              >
+                                Ban
+                              </button>
+                            )}
+                            <button 
+                              onClick={() => handleDeleteUser(user.id, user.type)}
+                              className="text-white bg-red-600 hover:bg-red-700 px-3 py-1 rounded"
+                            >
+                              Delete
+                            </button>
                           </td>
                         </tr>
                       ))}
@@ -644,8 +913,15 @@ useEffect(() => {
                             {new Date(job.postedDate).toLocaleDateString()}
                           </td>
                           <td className="flex px-6 py-4 text-sm">
-                            <button className="text-white bg-red-600 hover:text-blue-200 mr-2">Delete</button>
-                            <button className="text-white bg-yellow-500 hover:text-red-200">Edit</button>
+                            <button 
+                              onClick={() => handleDeleteJob(job.id)}
+                              className="text-white bg-red-600 hover:bg-red-700 mr-2 px-3 py-1 rounded"
+                            >
+                              Delete
+                            </button>
+                            <button className="text-white bg-yellow-500 hover:bg-yellow-600 px-3 py-1 rounded">
+                              Edit
+                            </button>
                           </td>
                         </tr>
                       ))}

@@ -396,101 +396,139 @@ useEffect(() => {
 
 
 useEffect(() => {
-  // Initialize Pusher
-  const pusherClient = new Pusher('de6b8a16c9b286c69d8b', { // my Pusher key
-    cluster: 'mt1',
-    forceTLS: true,
-    authEndpoint: 'http://localhost:8000/api/pusher/auth',
-    auth:{
-      headers:{
-        Authorization:`Bearer ${localStorage.getItem('token')}`,
+  // Initialize Pusher only once
+  const initializePusher = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    const pusherClient = new Pusher('de6b8a16c9b286c69d8b', {
+      cluster: 'mt1',
+      forceTLS: true,
+      authEndpoint: 'http://localhost:8000/api/pusher/auth',
+      auth: {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
       },
-    },
-  });
+    });
 
-  pusherClient.connection.bind('state_change', (states: any) => {
-    console.log('Pusher connection state changed:', states.current);
-  });
+    pusherClient.connection.bind('connected', () => {
+      console.log('Pusher connected successfully');
+      setPusher(pusherClient);
+    });
 
-  setPusher(pusherClient);
+    pusherClient.connection.bind('error', (err: any) => {
+      console.error('Pusher connection error:', err);
+    });
 
-  return () => {
-    if (pusherClient) {
-      console.log('Disconnecting Pusher...');
+    return () => {
       pusherClient.disconnect();
-    }
+    };
   };
+
+  initializePusher();
 }, []);
 
+// useEffect(() => {
+//   if (!pusher || !user?.id) return;
+
+//   // Subscribe to the applicant's private channel
+//   const channel = pusher.subscribe(`private-applicant.${user.id}`);
+  
+//   channel.bind('App\\Events\\ApplicantStatusUpdated', (data: any) => {
+//     console.log('Status update received:', data);
+//     Swal.fire({
+//       title: 'Application Status Update',
+//       html: `
+//         <div>
+//           <p>Your application for <strong>${data.job_title}</strong></p>
+//           <p>Status: <strong>${data.status}</strong></p>
+//           <p>${data.message}</p>
+//         </div>
+//       `,
+//       icon: data.status === 'accepted' ? 'success' : 
+//             data.status === 'denied' ? 'error' : 'info',
+//       confirmButtonText: 'View Details',
+//       showCancelButton: true,
+//       cancelButtonText: 'Dismiss'
+//     }).then((result) => {
+//       if (result.isConfirmed) {
+//         navigate(`/applications/${data.job_id}`);
+//       }
+//     });
+//   });
+
+//   return () => {
+//     channel.unbind('App\\Events\\ApplicantStatusUpdated');
+//   };
+// }, [pusher, user?.id, navigate]);
+
+// useEffect(() => {
+//   if (!pusher || !user?.id) return;
+
+//   // Subscribe to job posted channel
+//   const channel = pusher.subscribe('job-posted');
+  
+//   channel.bind('job.posted', (data: any) => {
+//     console.log('New job posted:', data);
+//     Swal.fire({
+//       title: 'New Job Matching Your Profile!',
+//       html: `
+//         <div>
+//           <p><strong>${data.job_title}</strong></p>
+//           <p>${data.company_description}</p>
+//           <p>Location: ${data.location}</p>
+//           <p>Salary: ${data.salary_range}</p>
+//         </div>
+//       `,
+//       icon: 'info',
+//       confirmButtonText: 'View Job',
+//       showCancelButton: true,
+//       cancelButtonText: 'Dismiss',
+//       timer: 10000, // Auto-dismiss after 10 seconds
+//       timerProgressBar: true
+//     }).then((result) => {
+//       if (result.isConfirmed) {
+//         navigate(`/job/${data.job_id}`);
+//       }
+//     });
+//   });
+
+//   return () => {
+//     channel.unbind('job.posted');
+//   };
+// }, [pusher, user?.id, navigate]);
+
 useEffect(() => {
   if (!pusher || !user?.id) return;
 
-  // Subscribe to the applicant's private channel
-  const channel = pusher.subscribe(`private-applicant.${user.id}`);
-  
-  channel.bind('App\\Events\\ApplicantStatusUpdated', (data: any) => {
+  // Job Posted Channel
+  const jobPostedChannel = pusher.subscribe('job-posted');
+  jobPostedChannel.bind('App\\Events\\JobPosted', (data: any) => {
+    console.log('Job posted event received:', data);
+    Swal.fire({
+      title: 'New Job Posted!',
+      text: `New job: ${data.job_title}`,
+      icon: 'info'
+    });
+  });
+
+  // Applicant Status Channel
+  const statusChannel = pusher.subscribe(`private-applicant.${user.id}`);
+  statusChannel.bind('App\\Events\\ApplicantStatusUpdated', (data: any) => {
     console.log('Status update received:', data);
     Swal.fire({
-      title: 'Application Status Update',
-      html: `
-        <div>
-          <p>Your application for <strong>${data.job_title}</strong></p>
-          <p>Status: <strong>${data.status}</strong></p>
-          <p>${data.message}</p>
-        </div>
-      `,
-      icon: data.status === 'accepted' ? 'success' : 
-            data.status === 'denied' ? 'error' : 'info',
-      confirmButtonText: 'View Details',
-      showCancelButton: true,
-      cancelButtonText: 'Dismiss'
-    }).then((result) => {
-      if (result.isConfirmed) {
-        navigate(`/applications/${data.job_id}`);
-      }
+      title: 'Status Updated',
+      text: `Your application status: ${data.status}`,
+      icon: data.status === 'accepted' ? 'success' : 'error'
     });
   });
 
   return () => {
-    channel.unbind('App\\Events\\ApplicantStatusUpdated');
+    jobPostedChannel.unbind_all();
+    statusChannel.unbind_all();
   };
-}, [pusher, user?.id, navigate]);
-
-useEffect(() => {
-  if (!pusher || !user?.id) return;
-
-  // Subscribe to job posted channel
-  const channel = pusher.subscribe('job-posted');
-  
-  channel.bind('job.posted', (data: any) => {
-    console.log('New job posted:', data);
-    Swal.fire({
-      title: 'New Job Matching Your Profile!',
-      html: `
-        <div>
-          <p><strong>${data.job_title}</strong></p>
-          <p>${data.company_description}</p>
-          <p>Location: ${data.location}</p>
-          <p>Salary: ${data.salary_range}</p>
-        </div>
-      `,
-      icon: 'info',
-      confirmButtonText: 'View Job',
-      showCancelButton: true,
-      cancelButtonText: 'Dismiss',
-      timer: 10000, // Auto-dismiss after 10 seconds
-      timerProgressBar: true
-    }).then((result) => {
-      if (result.isConfirmed) {
-        navigate(`/job/${data.job_id}`);
-      }
-    });
-  });
-
-  return () => {
-    channel.unbind('job.posted');
-  };
-}, [pusher, user?.id, navigate]);
+}, [pusher, user?.id]);
   return (
     <div className="bg-gradient-to-b from-blue-800 to-blue-950 min-h-screen w-screen">
       {/* Top Navigation Bar */}

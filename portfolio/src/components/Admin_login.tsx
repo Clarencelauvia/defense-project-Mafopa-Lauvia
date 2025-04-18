@@ -1,16 +1,18 @@
 import React, { useState } from 'react';
 import Swal from 'sweetalert2';
-import { Link } from 'react-router-dom';
+import { Link} from 'react-router-dom';
 import 'aos/dist/aos.css';
 import { useEffect } from 'react';
 import AOS from 'aos';
 import { FaEye, FaEyeSlash } from 'react-icons/fa';
+import { useNavigate } from 'react-router-dom';
 
 const AdminLogin: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+
 
   useEffect(() => {
     AOS.init({
@@ -19,6 +21,7 @@ const AdminLogin: React.FC = () => {
     });
   }, []);
 
+ const navigate = useNavigate();
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setIsLoading(true);
@@ -28,6 +31,8 @@ const AdminLogin: React.FC = () => {
     const formData = new FormData(event.currentTarget);
     const email = formData.get('email') as string;
     const password = formData.get('password') as string;
+
+    console.log('Attempting login with:', { email, password }); // Debug log
 
     if (!email || !password) {
       setErrorMessage('Please fill in all fields.');
@@ -47,40 +52,42 @@ const AdminLogin: React.FC = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+        'Accept': 'application/json'
         },
         body: JSON.stringify({ email, password }),
       });
 
-      const rawResponse = await response.text();
-      let result;
-      try {
-        result = JSON.parse(rawResponse);
-      } catch (error) {
-        console.error('Response is not JSON:', rawResponse);
-        setErrorMessage('An unexpected error occurred. Please try again.');
-        return;
+      console.log('Response status:', response.status); 
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
-
-      if (response.ok) {
-        setSuccessMessage(result.message);
-        localStorage.setItem('admin', JSON.stringify(result.admin));
-        localStorage.setItem('token', result.token);
-
-        Swal.fire({
-          title: `Welcome Admin!`,
-          text: 'You are being redirected to the admin dashboard.',
-          icon: 'success',
-          showConfirmButton: true,
-          confirmButtonText: 'Go to Dashboard',
-        }).then(() => {
-          window.location.href = result.redirect;
-        });
-      } else {
-        setErrorMessage(result.message || 'Login failed. Please try again.');
+      const data = await response.json();
+      console.log('Response data:', data); 
+    
+      if (!response.ok) {
+        throw new Error(data.message || 'Login failed');
       }
-    } catch (error) {
+    
+      setSuccessMessage(data.message);
+      localStorage.setItem('adminToken', data.token);
+      localStorage.setItem('admin', JSON.stringify(data.admin));
+    
+      Swal.fire({
+        title: `Welcome Admin!`,
+        text: 'You are being redirected to the admin dashboard.',
+        icon: 'success',
+        showConfirmButton: true,
+        confirmButtonText: 'Go to Dashboard',
+      }).then(() => {
+        navigate('/admin/dashboard');
+      });
+    } catch (error: unknown) {
       console.error('Error during login:', error);
-      setErrorMessage('An error occurred during login.');
+      if (error instanceof Error) {
+        setErrorMessage(error.message || 'An error occurred during login.');
+      } else {
+        setErrorMessage('An unexpected error occurred during login.');
+      }
     } finally {
       setIsLoading(false);
     }

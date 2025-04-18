@@ -61,4 +61,9 @@ class ApplicantStatusUpdated implements ShouldBroadcast
             'job_title' => $job->job_title ?? 'Unknown Job',
         ];
     }
+
+    public function broadcastAs()
+{
+    return 'ApplicantStatusUpdated'; // Consistent naming
+}
 }

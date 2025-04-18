@@ -21,6 +21,7 @@ use Illuminate\Support\Facades\Log;
 use App\Models\LoginDate;
 use Dompdf\Dompdf;
 use Illuminate\Support\Facades\Mail;
+use App\Events\NewUserRegistered;
 
 
 
@@ -71,19 +72,25 @@ class AutheController extends Controller
             'educational_level' => $request->educationalLevel,
         
         ]);
+
+         // Broadcast event
+    broadcast(new NewUserRegistered($user, 'jobseeker'))->toOthers();
+    
+    
+    \App\Models\Notication::create([
+        'type' => 'user',
+        'message' => 'New job seeker registered: ' . $user->first_name . ' ' . $user->last_name
+    ]);
     
         return response()->json([
             'message' => 'User registered successfully',
             'user' => $user,
         ], 201);
 
-           \App\Models\Notication::create([
-        'type' => 'user',
-        'message' => 'New job seeker registered: ' . $user->first_name . ' ' . $user->last_name
-    ]);
-    
-    return response()->json([/*...*/]);
-    }
+     
+  
+
+  }
 
       // Login in an existing user 
 

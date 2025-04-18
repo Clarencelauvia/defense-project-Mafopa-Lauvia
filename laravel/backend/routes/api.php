@@ -18,6 +18,7 @@ use App\Events\ApplicantStatusUpdated;
 use App\Http\Controllers\ApplicantStatusController;
 use Illuminate\Support\Facades\Auth;
 
+
 /*
 |--------------------------------------------------------------------------
 | API Routes
@@ -319,3 +320,16 @@ Route::post('/pusher/auth', function (Request $request) {
     return $pusher->socket_auth($request->channel_name, $request->socket_id);
 })->middleware('auth:sanctum');
 
+
+// admin functions 
+Route::prefix('admin')->group(function () {
+    Route::post('/login', [AdminController::class, 'login']);
+    Route::post('/forgot-password', [AdminController::class, 'sendResetLinkEmail']);
+    Route::post('/reset-password', [AdminController::class, 'resetPassword']);
+    
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/admin/metrics', [AdminController::class, 'getMetrics']);
+    Route::get('/admin/users', [AdminController::class, 'getUsers']);
+    Route::get('/admin/activities', [AdminController::class, 'getActivities']);
+});
+});

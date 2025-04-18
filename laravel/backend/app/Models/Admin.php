@@ -9,6 +9,7 @@ use Illuminate\Notifications\Notifiable;
 class Admin extends Authenticatable
 {
     use HasApiTokens, Notifiable;
+    
 
     protected $fillable = [
         'name',
@@ -18,5 +19,11 @@ class Admin extends Authenticatable
 
     protected $hidden = [
         'password',
+        'remember_token',
+    ];
+
+    protected $casts = [
+        'email_verified_at' => 'datetime',
+        'password' => 'hashed',
     ];
 }
